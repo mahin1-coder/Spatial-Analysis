@@ -11,6 +11,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/codex_mpl_cache")
 from src.config import build_config
 from src.analysis import run_change_analysis
 from src.baseline_model import train_random_forest_baseline
+from src.custom_pair import analyze_custom_pair
 from src.ingest import ingest_sources
 from src.inventory import write_phase1_inventory
 from src.preprocessing import preprocess_registered_pairs
@@ -25,7 +26,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         default="inventory",
-        choices=["inventory", "ingest", "preprocess", "analyze", "overlays", "labels", "baseline", "predict", "showcase", "full"],
+        choices=[
+            "inventory",
+            "ingest",
+            "preprocess",
+            "analyze",
+            "overlays",
+            "labels",
+            "baseline",
+            "predict",
+            "showcase",
+            "analyze-pair",
+            "full",
+        ],
         help="Pipeline mode to run.",
     )
     parser.add_argument(
@@ -33,6 +46,15 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         help="Source file or directory to audit. May be supplied multiple times.",
+    )
+    parser.add_argument("--before", type=Path, help="Path to a BEFORE raster (--mode analyze-pair).")
+    parser.add_argument("--after", type=Path, help="Path to an AFTER raster (--mode analyze-pair).")
+    parser.add_argument("--name", help="Case name for outputs (--mode analyze-pair).")
+    parser.add_argument(
+        "--nws-shapefile",
+        type=Path,
+        default=None,
+        help="Optional NWS damage path/polygon shapefile to overlay (--mode analyze-pair).",
     )
     return parser.parse_args()
 
@@ -84,6 +106,14 @@ def main() -> None:
     elif args.mode == "showcase":
         showcase = create_prediction_showcase(config)
         print(showcase.to_string(index=False))
+    elif args.mode == "analyze-pair":
+        if not args.before or not args.after or not args.name:
+            raise SystemExit("--mode analyze-pair requires --before, --after, and --name.")
+        result = analyze_custom_pair(config, args.before, args.after, args.name, args.nws_shapefile)
+        print(f"Status: {result['status']}")
+        print(f"Readable pixels: {result['valid_pixels']:,}")
+        print(f"Predicted damage pixels: {result['predicted_damage_pixels']:,}")
+        print(f"Showcase map: {result['showcase_path']}")
 
 
 if __name__ == "__main__":

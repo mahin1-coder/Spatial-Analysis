@@ -74,6 +74,94 @@ def _save_prediction_png(mask: np.ndarray, out_path: Path) -> None:
     plt.close()
 
 
+def predict_on_pair(
+    model,
+    before_path: Path,
+    after_path: Path,
+    out_dir: Path,
+    label_geoms: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    """Run the trained model on one BEFORE/AFTER raster pair and write outputs to out_dir.
+
+    This is the shared core used both by the curated TOR## dataset pipeline
+    (run_baseline_predictions) and by ad-hoc analysis of a new, arbitrary
+    BEFORE/AFTER pair that isn't part of that dataset.
+    """
+
+    label_geoms = label_geoms or []
+    out_dir.mkdir(parents=True, exist_ok=True)
+    valid_pixels = 0
+    predicted_damage = 0
+    y_true_parts: list[np.ndarray] = []
+    y_pred_parts: list[np.ndarray] = []
+    window_rows: list[dict[str, object]] = []
+
+    with rasterio.open(before_path) as before_src, rasterio.open(after_path) as after_src:
+        profile = before_src.profile.copy()
+        profile.update(count=1, dtype="uint8", nodata=NODATA, compress="deflate", BIGTIFF="IF_SAFER")
+        pred_full = np.full((before_src.height, before_src.width), NODATA, dtype="uint8")
+
+        for _, window in after_src.block_windows(1):
+            X, valid_flat, error = _window_features(before_src, after_src, window)
+            if X.size == 0:
+                window_rows.append({"window": str(window), "status": "SKIPPED", "valid_pixels": 0, "error": error})
+                continue
+            pred = model.predict(X).astype("uint8")
+            window_pred_flat = np.full(valid_flat.shape, NODATA, dtype="uint8")
+            window_pred_flat[valid_flat] = pred
+            window_pred = window_pred_flat.reshape((int(window.height), int(window.width)))
+            row_slice, col_slice = window.toslices()
+            pred_full[row_slice, col_slice] = window_pred
+
+            label = _window_label(before_src, window, label_geoms)
+            valid_label = label.reshape(-1)[valid_flat]
+            y_true_parts.append(valid_label)
+            y_pred_parts.append(pred)
+            valid_pixels += int(pred.size)
+            predicted_damage += int((pred == 1).sum())
+            window_rows.append(
+                {
+                    "window": str(window),
+                    "status": "OK",
+                    "valid_pixels": int(pred.size),
+                    "predicted_damage_pixels": int((pred == 1).sum()),
+                    "label_damage_pixels": int((valid_label == 1).sum()),
+                    "error": "",
+                }
+            )
+
+        pred_tif = out_dir / "prediction_mask.tif"
+        with rasterio.open(pred_tif, "w", **profile) as dst:
+            dst.write(pred_full, 1)
+        pred_png = out_dir / "prediction_mask.png"
+        _save_prediction_png(pred_full, pred_png)
+
+    if y_true_parts:
+        y_true = np.concatenate(y_true_parts)
+        y_pred = np.concatenate(y_pred_parts)
+        precision = float(precision_score(y_true, y_pred, zero_division=0))
+        recall = float(recall_score(y_true, y_pred, zero_division=0))
+        dice_f1 = float(f1_score(y_true, y_pred, zero_division=0))
+        label_damage = int((y_true == 1).sum())
+    else:
+        precision = recall = dice_f1 = np.nan
+        label_damage = 0
+
+    pd.DataFrame(window_rows).to_csv(out_dir / "prediction_window_report.csv", index=False)
+    return {
+        "status": "OK" if valid_pixels else "NO_VALID_PIXELS",
+        "valid_pixels": valid_pixels,
+        "predicted_damage_pixels": predicted_damage,
+        "label_damage_pixels": label_damage,
+        "precision": precision,
+        "recall": recall,
+        "dice_f1": dice_f1,
+        "prediction_tif": str(pred_tif),
+        "prediction_png": str(pred_png),
+        "error": "",
+    }
+
+
 def run_baseline_predictions(config: ProjectConfig) -> pd.DataFrame:
     """Apply the trained Random Forest baseline to all readable raster windows."""
 
@@ -95,81 +183,9 @@ def run_baseline_predictions(config: ProjectConfig) -> pd.DataFrame:
             continue
 
         out_dir = out_root / tor_id
-        out_dir.mkdir(parents=True, exist_ok=True)
-        valid_pixels = 0
-        predicted_damage = 0
-        y_true_parts: list[np.ndarray] = []
-        y_pred_parts: list[np.ndarray] = []
-        window_rows = []
-
         try:
-            with rasterio.open(pair["before_path"]) as before_src, rasterio.open(pair["after_path"]) as after_src:
-                profile = before_src.profile.copy()
-                profile.update(count=1, dtype="uint8", nodata=NODATA, compress="deflate", BIGTIFF="IF_SAFER")
-                pred_full = np.full((before_src.height, before_src.width), NODATA, dtype="uint8")
-
-                for _, window in after_src.block_windows(1):
-                    X, valid_flat, error = _window_features(before_src, after_src, window)
-                    if X.size == 0:
-                        window_rows.append({"window": str(window), "status": "SKIPPED", "valid_pixels": 0, "error": error})
-                        continue
-                    pred = model.predict(X).astype("uint8")
-                    window_pred_flat = np.full(valid_flat.shape, NODATA, dtype="uint8")
-                    window_pred_flat[valid_flat] = pred
-                    window_pred = window_pred_flat.reshape((int(window.height), int(window.width)))
-                    row_slice, col_slice = window.toslices()
-                    pred_full[row_slice, col_slice] = window_pred
-
-                    label = _window_label(before_src, window, label_geoms)
-                    valid_label = label.reshape(-1)[valid_flat]
-                    y_true_parts.append(valid_label)
-                    y_pred_parts.append(pred)
-                    valid_pixels += int(pred.size)
-                    predicted_damage += int((pred == 1).sum())
-                    window_rows.append(
-                        {
-                            "window": str(window),
-                            "status": "OK",
-                            "valid_pixels": int(pred.size),
-                            "predicted_damage_pixels": int((pred == 1).sum()),
-                            "label_damage_pixels": int((valid_label == 1).sum()),
-                            "error": "",
-                        }
-                    )
-
-                pred_tif = out_dir / "prediction_mask.tif"
-                with rasterio.open(pred_tif, "w", **profile) as dst:
-                    dst.write(pred_full, 1)
-                pred_png = out_dir / "prediction_mask.png"
-                _save_prediction_png(pred_full, pred_png)
-
-            if y_true_parts:
-                y_true = np.concatenate(y_true_parts)
-                y_pred = np.concatenate(y_pred_parts)
-                precision = float(precision_score(y_true, y_pred, zero_division=0))
-                recall = float(recall_score(y_true, y_pred, zero_division=0))
-                dice_f1 = float(f1_score(y_true, y_pred, zero_division=0))
-                label_damage = int((y_true == 1).sum())
-            else:
-                precision = recall = dice_f1 = np.nan
-                label_damage = 0
-
-            pd.DataFrame(window_rows).to_csv(out_dir / "prediction_window_report.csv", index=False)
-            rows.append(
-                {
-                    "tornado_id": tor_id,
-                    "status": "OK" if valid_pixels else "NO_VALID_PIXELS",
-                    "valid_pixels": valid_pixels,
-                    "predicted_damage_pixels": predicted_damage,
-                    "label_damage_pixels": label_damage,
-                    "precision": precision,
-                    "recall": recall,
-                    "dice_f1": dice_f1,
-                    "prediction_tif": str(pred_tif),
-                    "prediction_png": str(pred_png),
-                    "error": "",
-                }
-            )
+            result = predict_on_pair(model, Path(pair["before_path"]), Path(pair["after_path"]), out_dir, label_geoms)
+            rows.append({"tornado_id": tor_id, **result})
         except Exception as exc:
             LOGGER.warning("Prediction failed for %s: %s", tor_id, exc)
             rows.append({"tornado_id": tor_id, "status": "FAILED", "error": str(exc)})

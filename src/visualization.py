@@ -331,6 +331,46 @@ def _build_contact_sheet(entries: list[tuple[str, Path, float]], out_path: Path)
     plt.close(fig)
 
 
+def render_showcase_map(
+    case_id: str,
+    pred_tif: Path,
+    after_path: Path,
+    label_geoms_all: list[object],
+    metrics: dict[str, object],
+    out_path: Path,
+) -> dict[str, object]:
+    """Render one slide-quality showcase map for a prediction raster + its AFTER imagery.
+
+    Shared by the curated TOR## dataset showcase loop and by ad-hoc analysis of
+    a new BEFORE/AFTER pair that isn't part of that dataset.
+    """
+
+    with rasterio.open(pred_tif) as pred_src:
+        pred = pred_src.read(1)
+        transform = pred_src.transform
+        bounds = pred_src.bounds
+        shape = (pred_src.height, pred_src.width)
+
+    rgb, readable = _read_after_composite(after_path)
+    label_geoms_here = _label_geometries_for_bounds([{"geometry": g} for g in label_geoms_all], bounds)
+    crop_r, crop_c, crop_note = _choose_crop(label_geoms_here, transform, pred, shape)
+
+    _save_showcase(
+        case_id,
+        rgb,
+        readable,
+        pred,
+        (crop_r, crop_c),
+        crop_note,
+        label_geoms_here,
+        transform,
+        metrics,
+        has_geometry=bool(label_geoms_here),
+        out_path=out_path,
+    )
+    return {"has_nws_geometry": bool(label_geoms_here), "crop_note": crop_note}
+
+
 def create_prediction_showcase(config: ProjectConfig) -> pd.DataFrame:
     """Create slide-quality prediction maps from existing model outputs."""
 
@@ -356,42 +396,11 @@ def create_prediction_showcase(config: ProjectConfig) -> pd.DataFrame:
             rows.append({"tornado_id": tor_id, "showcase_path": "", "status": "SKIPPED"})
             continue
         try:
-            with rasterio.open(pred_path) as pred_src:
-                pred = pred_src.read(1)
-                transform = pred_src.transform
-                bounds = pred_src.bounds
-                shape = (pred_src.height, pred_src.width)
-
-            rgb, readable = _read_after_composite(Path(pair["after_path"]))
-            label_geoms_here = _label_geometries_for_bounds(
-                [{"geometry": g} for g in label_geoms_all], bounds
-            )
-            crop = _choose_crop(label_geoms_here, transform, pred, shape)
-            crop_slices, crop_note = (crop[0], crop[1]), crop[2]
-
             out_path = showcase_root / tor_id / "showcase_prediction_map.png"
-            _save_showcase(
-                tor_id,
-                rgb,
-                readable,
-                pred,
-                crop_slices,
-                crop_note,
-                label_geoms_here,
-                transform,
-                item,
-                has_geometry=bool(label_geoms_here),
-                out_path=out_path,
+            render_info = render_showcase_map(
+                tor_id, pred_path, Path(pair["after_path"]), label_geoms_all, item, out_path
             )
-            rows.append(
-                {
-                    "tornado_id": tor_id,
-                    "showcase_path": str(out_path),
-                    "status": "OK",
-                    "has_nws_geometry": bool(label_geoms_here),
-                    "crop_note": crop_note,
-                }
-            )
+            rows.append({"tornado_id": tor_id, "showcase_path": str(out_path), "status": "OK", **render_info})
             dice_value = item.get("dice_f1")
             dice_float = float(dice_value) if dice_value is not None and not pd.isna(dice_value) else np.nan
             contact_entries.append((tor_id, out_path, dice_float))
