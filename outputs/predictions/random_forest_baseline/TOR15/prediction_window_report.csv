@@ -1,0 +1,56 @@
+window,status,valid_pixels,predicted_damage_pixels,label_damage_pixels,error
+"Window(col_off=0, row_off=0, width=256, height=256)",OK,65251,910.0,0.0,
+"Window(col_off=256, row_off=0, width=256, height=256)",OK,65536,881.0,0.0,
+"Window(col_off=512, row_off=0, width=256, height=256)",OK,65528,1582.0,0.0,
+"Window(col_off=768, row_off=0, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1024, row_off=0, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1280, row_off=0, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1536, row_off=0, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1792, row_off=0, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2048, row_off=0, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2304, row_off=0, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2560, row_off=0, width=6, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=0, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=256, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=512, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=768, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1024, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1280, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1536, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1792, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2048, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2304, row_off=256, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2560, row_off=256, width=6, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=0, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=256, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=512, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=768, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1024, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1280, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1536, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1792, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2048, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2304, row_off=512, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2560, row_off=512, width=6, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=0, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=256, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=512, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=768, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1024, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1280, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1536, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1792, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2048, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2304, row_off=768, width=256, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2560, row_off=768, width=6, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=0, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=256, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=512, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=768, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1024, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1280, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1536, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=1792, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2048, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2304, row_off=1024, width=256, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=2560, row_off=1024, width=6, height=165)",SKIPPED,0,,,Read failed. See previous exception for details.

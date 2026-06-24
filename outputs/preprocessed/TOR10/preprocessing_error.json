@@ -1,0 +1,11 @@
+{
+  "tornado_id": "TOR10",
+  "before_path": "/Users/m.mahin/Documents/New project 2/data/raw/rasters/TOR10_BEST_BEFORE_win25d.tif",
+  "after_path": "/Users/m.mahin/Documents/New project 2/data/raw/rasters/TOR10_BEST_AFTER_win10d.tif",
+  "status": "FAILED",
+  "before_aligned_path": "",
+  "after_aligned_path": "",
+  "actions": "",
+  "warnings": "multiple BEFORE candidates; multiple AFTER candidates",
+  "error": "Read failed. See previous exception for details."
+}

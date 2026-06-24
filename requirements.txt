@@ -1,0 +1,15 @@
+rasterio>=1.4
+geopandas>=1.0
+shapely>=2.0
+fiona>=1.10
+pyproj>=3.7
+pandas>=2.2
+numpy>=2.0
+matplotlib>=3.9
+scikit-learn>=1.5
+scipy>=1.13
+joblib>=1.4
+tifffile>=2024.8
+imagecodecs>=2024.6
+torch>=2.4
+tqdm>=4.66

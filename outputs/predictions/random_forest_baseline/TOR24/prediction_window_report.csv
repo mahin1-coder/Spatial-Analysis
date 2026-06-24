@@ -1,0 +1,9 @@
+window,status,valid_pixels,predicted_damage_pixels,label_damage_pixels,error
+"Window(col_off=0, row_off=0, width=256, height=256)",OK,65224,18.0,0.0,
+"Window(col_off=256, row_off=0, width=256, height=256)",OK,65533,5.0,0.0,
+"Window(col_off=512, row_off=0, width=256, height=256)",OK,65524,39.0,0.0,
+"Window(col_off=768, row_off=0, width=179, height=256)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=0, row_off=256, width=256, height=54)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=256, row_off=256, width=256, height=54)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=512, row_off=256, width=256, height=54)",SKIPPED,0,,,Read failed. See previous exception for details.
+"Window(col_off=768, row_off=256, width=179, height=54)",SKIPPED,0,,,Read failed. See previous exception for details.
