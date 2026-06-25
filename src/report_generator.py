@@ -16,6 +16,9 @@ drop out of the calculation instead of being silently included.
 from __future__ import annotations
 
 import logging
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import matplotlib
@@ -87,7 +90,11 @@ def _stretch(band: np.ndarray) -> np.ndarray:
     low, high = np.nanpercentile(finite, [2, 98])
     if high <= low:
         return np.zeros_like(band)
-    return np.clip((band - low) / (high - low), 0, 1)
+    stretched = np.clip((band - low) / (high - low), 0, 1)
+    # imshow()-ing an array that's mostly NaN (low-readability cases) corrupts the
+    # PDF backend's zlib stream on save ("inconsistent stream state") - unreadable
+    # pixels must be a real number, not NaN, before they ever reach the renderer.
+    return np.nan_to_num(stretched, nan=0.0)
 
 
 def _add_title_page(pdf: PdfPages, tor_id: str, before_path: Path, after_path: Path, meta: dict[str, object]) -> None:
@@ -130,20 +137,35 @@ def _add_title_page(pdf: PdfPages, tor_id: str, before_path: Path, after_path: P
         fig.text(0.10, y, row_text, fontsize=10, family="monospace")
         y -= 0.03
 
-    pdf.savefig(fig)
-    plt.close(fig)
+    try:
+        pdf.savefig(fig)
+    finally:
+        plt.close(fig)
 
 
 def _build_channel_grid_fig(tor_id: str, title: str, before: np.ndarray, after: np.ndarray, n_channels: int):
-    fig, axes = plt.subplots(n_channels, 2, figsize=(9, 2.2 * n_channels))
+    # Pairs of (before, after) columns per channel, 2 channels per row, so the
+    # figure stays landscape-oriented (matters for widescreen slide embedding)
+    # instead of stacking all channels into one tall, narrow column.
+    channels_per_row = 2
+    rows = (n_channels + channels_per_row - 1) // channels_per_row
+    cols = channels_per_row * 2
+    fig, axes = plt.subplots(rows, cols, figsize=(3.4 * cols, 2.9 * rows))
     axes = np.atleast_2d(axes)
-    for c in range(n_channels):
-        axes[c, 0].imshow(_stretch(before[c]), cmap="gray")
-        axes[c, 0].set_title(f"Channel {c} - Before" if c == 0 else f"Channel {c}", fontsize=10)
-        axes[c, 0].axis("off")
-        axes[c, 1].imshow(_stretch(after[c]), cmap="gray")
-        axes[c, 1].set_title(f"Channel {c} - After" if c == 0 else f"Channel {c}", fontsize=10)
-        axes[c, 1].axis("off")
+    for c in range(rows * channels_per_row):
+        row, col_group = c // channels_per_row, c % channels_per_row
+        ax_before = axes[row][col_group * 2]
+        ax_after = axes[row][col_group * 2 + 1]
+        if c >= n_channels:
+            ax_before.axis("off")
+            ax_after.axis("off")
+            continue
+        ax_before.imshow(_stretch(before[c]), cmap="gray")
+        ax_before.set_title(f"Ch {c} - Before", fontsize=10)
+        ax_before.axis("off")
+        ax_after.imshow(_stretch(after[c]), cmap="gray")
+        ax_after.set_title(f"Ch {c} - After", fontsize=10)
+        ax_after.axis("off")
     fig.suptitle(f"{tor_id}: {title}", fontsize=14, fontweight="bold")
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     return fig
@@ -153,7 +175,7 @@ def _build_difference_grid_fig(tor_id: str, before: np.ndarray, after: np.ndarra
     diff = after - before
     cols = 3
     rows = (n_channels + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.2))
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 3.2, rows * 2.6))
     axes = np.atleast_2d(axes)
     for c in range(rows * cols):
         ax = axes[c // cols][c % cols]
@@ -164,7 +186,9 @@ def _build_difference_grid_fig(tor_id: str, before: np.ndarray, after: np.ndarra
         finite = band[np.isfinite(band)]
         v = float(np.nanpercentile(np.abs(finite), 98)) if finite.size else 1.0
         v = v if v > 0 else 1.0
-        im = ax.imshow(band, cmap="bwr", vmin=-v, vmax=v)
+        # See _stretch(): NaN-laden arrays reaching imshow() corrupt the PDF
+        # backend's zlib stream on save for low-readability cases.
+        im = ax.imshow(np.nan_to_num(band, nan=0.0), cmap="bwr", vmin=-v, vmax=v)
         ax.set_title(f"Channel {c}", fontsize=10)
         ax.axis("off")
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -180,7 +204,7 @@ def _build_difference_grid_fig(tor_id: str, before: np.ndarray, after: np.ndarra
 def _build_distribution_grid_fig(tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int):
     cols = 3
     rows = (n_channels + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.2))
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 3.2, rows * 2.6))
     axes = np.atleast_2d(axes)
     for c in range(rows * cols):
         ax = axes[c // cols][c % cols]
@@ -204,20 +228,26 @@ def _add_channel_grid(
     pdf: PdfPages, tor_id: str, title: str, before: np.ndarray, after: np.ndarray, n_channels: int
 ) -> None:
     fig = _build_channel_grid_fig(tor_id, title, before, after, n_channels)
-    pdf.savefig(fig)
-    plt.close(fig)
+    try:
+        pdf.savefig(fig)
+    finally:
+        plt.close(fig)
 
 
 def _add_difference_grid(pdf: PdfPages, tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int) -> None:
     fig = _build_difference_grid_fig(tor_id, before, after, n_channels)
-    pdf.savefig(fig)
-    plt.close(fig)
+    try:
+        pdf.savefig(fig)
+    finally:
+        plt.close(fig)
 
 
 def _add_distribution_grid(pdf: PdfPages, tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int) -> None:
     fig = _build_distribution_grid_fig(tor_id, before, after, n_channels)
-    pdf.savefig(fig)
-    plt.close(fig)
+    try:
+        pdf.savefig(fig)
+    finally:
+        plt.close(fig)
 
 
 def _add_interpretation_page(pdf: PdfPages, tor_id: str, meta: dict[str, object]) -> None:
@@ -261,8 +291,10 @@ def _add_interpretation_page(pdf: PdfPages, tor_id: str, meta: dict[str, object]
         fig.text(0.08, y, line, fontsize=13, wrap=True)
         y -= 0.07
 
-    pdf.savefig(fig)
-    plt.close(fig)
+    try:
+        pdf.savefig(fig)
+    finally:
+        plt.close(fig)
 
 
 def load_case_data(before_path: Path, after_path: Path) -> tuple[np.ndarray, np.ndarray, int, dict[str, object]]:
@@ -299,20 +331,26 @@ def generate_case_eda_images(
 
     fig = _build_channel_grid_fig(tor_id, "Before vs After (per channel)", before, after, n_channels)
     p = out_dir / f"{tor_id}_before_after.png"
-    fig.savefig(p, dpi=140, bbox_inches="tight")
-    plt.close(fig)
+    try:
+        fig.savefig(p, dpi=140, bbox_inches="tight")
+    finally:
+        plt.close(fig)
     paths["before_after"] = str(p)
 
     fig = _build_difference_grid_fig(tor_id, before, after, n_channels)
     p = out_dir / f"{tor_id}_difference.png"
-    fig.savefig(p, dpi=140, bbox_inches="tight")
-    plt.close(fig)
+    try:
+        fig.savefig(p, dpi=140, bbox_inches="tight")
+    finally:
+        plt.close(fig)
     paths["difference"] = str(p)
 
     fig = _build_distribution_grid_fig(tor_id, before, after, n_channels)
     p = out_dir / f"{tor_id}_distribution.png"
-    fig.savefig(p, dpi=140, bbox_inches="tight")
-    plt.close(fig)
+    try:
+        fig.savefig(p, dpi=140, bbox_inches="tight")
+    finally:
+        plt.close(fig)
     paths["distribution"] = str(p)
 
     return paths
@@ -339,7 +377,37 @@ def generate_case_eda_report(tor_id: str, before_path: Path, after_path: Path, o
     }
 
 
-def generate_all_eda_reports(config: ProjectConfig) -> list[dict[str, object]]:
+_WORKER_SNIPPET = (
+    "import sys; from pathlib import Path; from src.report_generator import generate_case_eda_report; "
+    "generate_case_eda_report(sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]))"
+)
+
+
+def _generate_case_report_subprocess(tor_id: str, before_path: Path, after_path: Path, out_path: Path) -> str:
+    """Run one case's report generation in a fresh subprocess.
+
+    Saving large multi-panel PDF pages has triggered an intermittent
+    "Error -2 while flushing: inconsistent stream state" on this
+    memory-constrained machine. It isn't data-dependent (a clean repro shows
+    different cases failing on different runs) and persists even on retry
+    within the same process - something in the matplotlib/PDF backend's
+    global state gets corrupted and stays corrupted for that process. A
+    fresh subprocess per case sidesteps it entirely.
+    """
+
+    result = subprocess.run(
+        [sys.executable, "-c", _WORKER_SNIPPET, tor_id, str(before_path), str(after_path), str(out_path)],
+        cwd=Path(__file__).resolve().parent.parent,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        tail = result.stderr.strip().splitlines()
+        raise RuntimeError(tail[-1] if tail else f"subprocess exited with code {result.returncode}")
+    return result.stdout
+
+
+def generate_all_eda_reports(config: ProjectConfig, max_attempts: int = 5) -> list[dict[str, object]]:
     """Build one EDA report per tornado case, matching the project's prior manual EDA work."""
 
     pairs = pair_registered_rasters(config)
@@ -351,11 +419,19 @@ def generate_all_eda_reports(config: ProjectConfig) -> list[dict[str, object]]:
             results.append({"tornado_id": tor_id, "status": "SKIPPED", "error": pair.get("warnings", "")})
             continue
         out_path = out_root / f"{tor_id}_eda_report.pdf"
-        try:
-            result = generate_case_eda_report(tor_id, Path(pair["before_path"]), Path(pair["after_path"]), out_path)
-            result["status"] = "OK"
-            results.append(result)
-        except Exception as exc:
-            LOGGER.warning("EDA report failed for %s: %s", tor_id, exc)
-            results.append({"tornado_id": tor_id, "status": "FAILED", "error": str(exc)})
+        last_error = ""
+        for attempt in range(1, max_attempts + 1):
+            try:
+                _generate_case_report_subprocess(tor_id, Path(pair["before_path"]), Path(pair["after_path"]), out_path)
+                results.append({"tornado_id": tor_id, "report_path": str(out_path), "status": "OK"})
+                break
+            except Exception as exc:
+                last_error = str(exc)
+                LOGGER.warning("EDA report failed for %s (attempt %d/%d): %s", tor_id, attempt, max_attempts, exc)
+                # This sandbox runs with swap near capacity; the zlib flush error is a
+                # symptom of momentary memory pressure, not this case's data - give the
+                # OS a few seconds to reclaim memory before the next attempt.
+                time.sleep(5)
+        else:
+            results.append({"tornado_id": tor_id, "status": "FAILED", "error": last_error})
     return results
