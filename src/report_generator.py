@@ -134,9 +134,7 @@ def _add_title_page(pdf: PdfPages, tor_id: str, before_path: Path, after_path: P
     plt.close(fig)
 
 
-def _add_channel_grid(
-    pdf: PdfPages, tor_id: str, title: str, before: np.ndarray, after: np.ndarray, n_channels: int
-) -> None:
+def _build_channel_grid_fig(tor_id: str, title: str, before: np.ndarray, after: np.ndarray, n_channels: int):
     fig, axes = plt.subplots(n_channels, 2, figsize=(9, 2.2 * n_channels))
     axes = np.atleast_2d(axes)
     for c in range(n_channels):
@@ -148,11 +146,10 @@ def _add_channel_grid(
         axes[c, 1].axis("off")
     fig.suptitle(f"{tor_id}: {title}", fontsize=14, fontweight="bold")
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    pdf.savefig(fig)
-    plt.close(fig)
+    return fig
 
 
-def _add_difference_grid(pdf: PdfPages, tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int) -> None:
+def _build_difference_grid_fig(tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int):
     diff = after - before
     cols = 3
     rows = (n_channels + cols - 1) // cols
@@ -177,11 +174,10 @@ def _add_difference_grid(pdf: PdfPages, tor_id: str, before: np.ndarray, after: 
         fontweight="bold",
     )
     fig.tight_layout(rect=(0, 0, 1, 0.95))
-    pdf.savefig(fig)
-    plt.close(fig)
+    return fig
 
 
-def _add_distribution_grid(pdf: PdfPages, tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int) -> None:
+def _build_distribution_grid_fig(tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int):
     cols = 3
     rows = (n_channels + cols - 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.2))
@@ -201,6 +197,25 @@ def _add_distribution_grid(pdf: PdfPages, tor_id: str, before: np.ndarray, after
         ax.legend(fontsize=8)
     fig.suptitle(f"{tor_id}: Distribution Shift (Before vs After)", fontsize=13, fontweight="bold")
     fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
+
+
+def _add_channel_grid(
+    pdf: PdfPages, tor_id: str, title: str, before: np.ndarray, after: np.ndarray, n_channels: int
+) -> None:
+    fig = _build_channel_grid_fig(tor_id, title, before, after, n_channels)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def _add_difference_grid(pdf: PdfPages, tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int) -> None:
+    fig = _build_difference_grid_fig(tor_id, before, after, n_channels)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def _add_distribution_grid(pdf: PdfPages, tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int) -> None:
+    fig = _build_distribution_grid_fig(tor_id, before, after, n_channels)
     pdf.savefig(fig)
     plt.close(fig)
 
@@ -250,8 +265,8 @@ def _add_interpretation_page(pdf: PdfPages, tor_id: str, meta: dict[str, object]
     plt.close(fig)
 
 
-def generate_case_eda_report(tor_id: str, before_path: Path, after_path: Path, out_path: Path) -> dict[str, object]:
-    """Build one PDF EDA report for a single BEFORE/AFTER pair, Gloria-report style."""
+def load_case_data(before_path: Path, after_path: Path) -> tuple[np.ndarray, np.ndarray, int, dict[str, object]]:
+    """Read a BEFORE/AFTER pair and compute the stats shared by the PDF report and slide deck."""
 
     before, before_readable = _read_band_stack(before_path)
     after, after_readable = _read_band_stack(after_path)
@@ -271,6 +286,42 @@ def generate_case_eda_report(tor_id: str, before_path: Path, after_path: Path, o
         "after_stats": _channel_stats(after),
         "after_corr": _correlation_matrix(after),
     }
+    return before, after, n_channels, meta
+
+
+def generate_case_eda_images(
+    tor_id: str, before: np.ndarray, after: np.ndarray, n_channels: int, out_dir: Path
+) -> dict[str, str]:
+    """Save the channel-grid/difference/distribution figures as standalone PNGs for slide embedding."""
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths: dict[str, str] = {}
+
+    fig = _build_channel_grid_fig(tor_id, "Before vs After (per channel)", before, after, n_channels)
+    p = out_dir / f"{tor_id}_before_after.png"
+    fig.savefig(p, dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    paths["before_after"] = str(p)
+
+    fig = _build_difference_grid_fig(tor_id, before, after, n_channels)
+    p = out_dir / f"{tor_id}_difference.png"
+    fig.savefig(p, dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    paths["difference"] = str(p)
+
+    fig = _build_distribution_grid_fig(tor_id, before, after, n_channels)
+    p = out_dir / f"{tor_id}_distribution.png"
+    fig.savefig(p, dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    paths["distribution"] = str(p)
+
+    return paths
+
+
+def generate_case_eda_report(tor_id: str, before_path: Path, after_path: Path, out_path: Path) -> dict[str, object]:
+    """Build one PDF EDA report for a single BEFORE/AFTER pair, Gloria-report style."""
+
+    before, after, n_channels, meta = load_case_data(before_path, after_path)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(out_path) as pdf:
