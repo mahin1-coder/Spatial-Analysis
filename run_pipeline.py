@@ -14,8 +14,10 @@ from src.baseline_model import train_random_forest_baseline
 from src.custom_pair import analyze_custom_pair
 from src.ingest import ingest_sources
 from src.inventory import write_phase1_inventory
+from src.path_atlas import create_tornado_path_atlas
 from src.preprocessing import preprocess_registered_pairs
 from src.predict import run_baseline_predictions
+from src.report_generator import generate_all_eda_reports
 from src.shapefile_tools import run_overlays
 from src.utils import setup_logging
 from src.visualization import create_prediction_showcase
@@ -36,6 +38,8 @@ def parse_args() -> argparse.Namespace:
             "baseline",
             "predict",
             "showcase",
+            "path-atlas",
+            "eda-report",
             "analyze-pair",
             "full",
         ],
@@ -106,6 +110,13 @@ def main() -> None:
     elif args.mode == "showcase":
         showcase = create_prediction_showcase(config)
         print(showcase.to_string(index=False))
+    elif args.mode == "path-atlas":
+        atlas_path = create_tornado_path_atlas(config)
+        print(f"Tornado path atlas written to: {atlas_path}")
+    elif args.mode == "eda-report":
+        eda_results = generate_all_eda_reports(config)
+        for row in eda_results:
+            print(row)
     elif args.mode == "analyze-pair":
         if not args.before or not args.after or not args.name:
             raise SystemExit("--mode analyze-pair requires --before, --after, and --name.")
