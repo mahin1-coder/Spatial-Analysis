@@ -11,6 +11,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/codex_mpl_cache")
 from src.config import build_config
 from src.analysis import run_change_analysis
 from src.baseline_model import train_random_forest_baseline
+from src.batch_pairs import analyze_pair_folder
 from src.custom_pair import analyze_custom_pair
 from src.ingest import ingest_sources
 from src.inventory import write_phase1_inventory
@@ -41,6 +42,7 @@ def parse_args() -> argparse.Namespace:
             "path-atlas",
             "eda-report",
             "analyze-pair",
+            "analyze-folder",
             "full",
         ],
         help="Pipeline mode to run.",
@@ -54,6 +56,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--before", type=Path, help="Path to a BEFORE raster (--mode analyze-pair).")
     parser.add_argument("--after", type=Path, help="Path to an AFTER raster (--mode analyze-pair).")
     parser.add_argument("--name", help="Case name for outputs (--mode analyze-pair).")
+    parser.add_argument("--batch-name", default="new_batch", help="Batch name for --mode analyze-folder.")
     parser.add_argument(
         "--nws-shapefile",
         type=Path,
@@ -125,6 +128,15 @@ def main() -> None:
         print(f"Readable pixels: {result['valid_pixels']:,}")
         print(f"Predicted damage pixels: {result['predicted_damage_pixels']:,}")
         print(f"Showcase map: {result['showcase_path']}")
+    elif args.mode == "analyze-folder":
+        if not args.source:
+            raise SystemExit("--mode analyze-folder requires --source /path/to/folder.")
+        folder = Path(args.source[0]).expanduser().resolve()
+        results = analyze_pair_folder(config, folder, args.batch_name, args.nws_shapefile)
+        ok_count = int((results["status"] == "OK").sum()) if "status" in results else 0
+        print(f"Detected rows: {len(results)}")
+        print(f"Successful maps: {ok_count}")
+        print(f"Batch outputs: {config.outputs_dir / 'predictions' / 'batch' / args.batch_name}")
 
 
 if __name__ == "__main__":

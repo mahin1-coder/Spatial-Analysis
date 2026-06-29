@@ -39,6 +39,7 @@ def analyze_custom_pair(
     after_path: Path,
     name: str,
     nws_shapefile: Path | None = None,
+    output_dir: Path | None = None,
 ) -> dict[str, object]:
     """Predict damage and render a showcase map for any BEFORE/AFTER raster pair."""
 
@@ -56,7 +57,7 @@ def analyze_custom_pair(
     if nws_shapefile is not None:
         label_geoms_raw = _load_geometries_from_shapefile(nws_shapefile)
 
-    out_dir = config.outputs_dir / "predictions" / "custom" / name
+    out_dir = output_dir or (config.outputs_dir / "predictions" / "custom" / name)
     metrics = predict_on_pair(
         model,
         before_path,
