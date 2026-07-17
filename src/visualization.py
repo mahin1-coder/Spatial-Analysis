@@ -96,8 +96,8 @@ def _read_after_composite(after_path: Path) -> tuple[np.ndarray, np.ndarray]:
         return rgb.astype("float32"), readable
 
 
-def _label_geometries_for_bounds(label_geoms: list[dict[str, object]], bounds) -> list[object]:
-    return _window_geometries(label_geoms, bounds)
+def _label_geometries_for_bounds(label_geoms: list[dict[str, object]], bounds, target_crs=None) -> list[object]:
+    return _window_geometries(label_geoms, bounds, target_crs)
 
 
 def _geometry_pixel_parts(geom, transform) -> list[tuple[np.ndarray, np.ndarray, bool]]:
@@ -349,10 +349,17 @@ def render_showcase_map(
         pred = pred_src.read(1)
         transform = pred_src.transform
         bounds = pred_src.bounds
+        pred_crs = pred_src.crs
         shape = (pred_src.height, pred_src.width)
 
     rgb, readable = _read_after_composite(after_path)
-    label_geoms_here = _label_geometries_for_bounds([{"geometry": g} for g in label_geoms_all], bounds)
+    normalized_label_items = []
+    for item in label_geoms_all:
+        if isinstance(item, dict):
+            normalized_label_items.append(item)
+        else:
+            normalized_label_items.append({"geometry": item})
+    label_geoms_here = _label_geometries_for_bounds(normalized_label_items, bounds, pred_crs)
     crop_r, crop_c, crop_note = _choose_crop(label_geoms_here, transform, pred, shape)
 
     _save_showcase(
@@ -382,7 +389,7 @@ def create_prediction_showcase(config: ProjectConfig) -> pd.DataFrame:
     summary = pd.read_csv(summary_path)
     pairs = pair_registered_rasters(config)
     pair_by_id = {row["tornado_id"]: row for row in pairs.to_dict("records")}
-    label_geoms_all = [item["geometry"] for item in _load_label_geometries(config)]
+    label_geoms_all = _load_label_geometries(config)
     showcase_root = pred_root / "showcase_maps"
 
     rows: list[dict[str, object]] = []

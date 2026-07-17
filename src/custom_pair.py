@@ -17,20 +17,21 @@ import joblib
 import pandas as pd
 
 from .config import ProjectConfig
+from .geospatial_validation import validate_pair
+from .preprocessing import _align_after_to_before
 from .predict import predict_on_pair
 from .visualization import render_showcase_map
 
 LOGGER = logging.getLogger(__name__)
 
 
-def _load_geometries_from_shapefile(path: Path) -> list[object]:
+def _load_geometries_from_shapefile(path: Path) -> list[dict[str, object]]:
     gdf = gpd.read_file(path)
     if gdf.empty:
         return []
     if gdf.crs is None:
         raise ValueError(f"Shapefile has no CRS, cannot align with raster: {path}")
-    gdf = gdf.to_crs("EPSG:4326")
-    return [geom for geom in gdf.geometry if geom is not None and not geom.is_empty]
+    return [{"geometry": geom, "crs": gdf.crs, "source": str(path)} for geom in gdf.geometry if geom is not None and not geom.is_empty]
 
 
 def analyze_custom_pair(
@@ -53,23 +54,33 @@ def analyze_custom_pair(
 
     model = joblib.load(model_path)
 
-    label_geoms_raw: list[object] = []
+    label_geoms_raw: list[dict[str, object]] = []
     if nws_shapefile is not None:
         label_geoms_raw = _load_geometries_from_shapefile(nws_shapefile)
 
     out_dir = output_dir or (config.outputs_dir / "predictions" / "custom" / name)
+    validation = validate_pair(name, before_path, after_path)
+    validation_report = pd.DataFrame([validation.__dict__])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    validation_report.to_csv(out_dir / "raster_validation_report.csv", index=False)
+    if validation.status != "OK":
+        raise ValueError(validation.error or validation.warnings or "raster validation failed")
+
+    aligned_dir = out_dir / "aligned"
+    before_aligned, after_aligned, actions = _align_after_to_before(before_path, after_path, aligned_dir)
     metrics = predict_on_pair(
         model,
-        before_path,
-        after_path,
+        before_aligned,
+        after_aligned,
         out_dir,
-        label_geoms=[{"geometry": g} for g in label_geoms_raw],
+        label_geoms=label_geoms_raw,
     )
     metrics["case_id"] = name
+    metrics["alignment_actions"] = "; ".join(actions)
 
     showcase_path = out_dir / "showcase_prediction_map.png"
     render_info = render_showcase_map(
-        name, Path(metrics["prediction_tif"]), after_path, label_geoms_raw, metrics, showcase_path
+        name, Path(metrics["prediction_tif"]), after_aligned, label_geoms_raw, metrics, showcase_path
     )
     metrics.update(render_info)
     metrics["showcase_path"] = str(showcase_path)

@@ -7,11 +7,12 @@ The goal is practical: when a new tornado dataset arrives, the workflow should n
 ## What It Does
 
 - Finds before/after image pairs in a folder
-- Aligns and compares the raster data where the imagery is readable
+- Validates CRS, bounds, resolution, band count, NoData, readability, and geographic overlap
+- Aligns AFTER imagery to the BEFORE raster grid before comparing pixels
 - Runs a trained baseline model on the paired imagery
-- Produces a damage mask for each tornado case
+- Produces probability rasters, damage masks, polygons, and candidate centerlines
 - Renders clear map outputs with a red predicted path overlay
-- Supports official NWS shapefile overlays when they are available
+- Supports official NWS shapefile overlays when they are available and geographically overlap the raster
 - Builds a contact sheet for batches, so 50 pairs produce 50 reviewable maps
 
 Typical use:
@@ -61,6 +62,17 @@ Each case also gets its own:
 
 ```text
 showcase_prediction_map.png
+predicted_probability.tif
+prediction_mask.tif
+predicted_damage_polygon.geojson
+predicted_path_centerline.geojson
+```
+
+If anything is skipped, open:
+
+```text
+outputs/reports/pairing_report.csv
+outputs/reports/raster_validation_report.csv
 ```
 
 ## Folder Naming
@@ -123,6 +135,8 @@ Analyze one pair with an official NWS shapefile:
 - Cyan or blue: official NWS path/polygon, if supplied
 - Gray or white: unreadable, missing, or corrupted image area
 
+Important: red is a model prediction. Cyan/blue is official geometry. They are intentionally kept separate so the map does not imply false certainty.
+
 The pipeline does not fake results for broken imagery. If a tile cannot be read, it is marked instead of silently guessed.
 
 ## Main Output Locations
@@ -181,3 +195,16 @@ The current repo is set up to make the workflow usable now. The recommended next
 5. Package the workflow as a small web app for drag-and-drop use
 
 The important part is already in place: the project can take new paired imagery and automatically produce tornado path maps without hand tracing.
+
+## Documentation
+
+Detailed project notes are in:
+
+```text
+docs/TECHNICAL_AUDIT.md
+docs/BEGINNER_GUIDE.md
+docs/MODEL_METHODOLOGY.md
+docs/DATA_REQUIREMENTS.md
+docs/TROUBLESHOOTING.md
+docs/PRESENTATION_GUIDE.md
+```

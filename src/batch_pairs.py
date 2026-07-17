@@ -3,87 +3,22 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 
 import pandas as pd
 
 from .config import ProjectConfig
+from .pairing import find_image_pairs, write_pairing_report
 
 LOGGER = logging.getLogger(__name__)
-
-IMAGE_EXTENSIONS = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
-BEFORE_WORDS = ("before", "pre", "prestorm", "pre_event", "pre-event")
-AFTER_WORDS = ("after", "post", "poststorm", "post_event", "post-event")
-
-
-def _clean_case_key(path: Path, role_words: tuple[str, ...]) -> str:
-    """Create a stable pairing key by removing before/after words from a filename."""
-
-    key = path.stem.lower()
-    key = re.sub(r"\d{4}[-_]\d{2}[-_]\d{2}", "", key)
-    for word in role_words:
-        key = re.sub(rf"(^|[_\-\s]){re.escape(word)}([_\-\s]|$)", "_", key)
-    key = re.sub(r"best|image|satellite|landsat|sentinel|planet|tornado|damage", "_", key)
-    key = re.sub(r"[^a-z0-9]+", "_", key).strip("_")
-    return key or path.stem.lower()
-
-
-def _image_role(path: Path) -> str | None:
-    name = path.stem.lower()
-    before_hit = any(re.search(rf"(^|[_\-\s]){re.escape(word)}([_\-\s]|\d|$)", name) for word in BEFORE_WORDS)
-    after_hit = any(re.search(rf"(^|[_\-\s]){re.escape(word)}([_\-\s]|\d|$)", name) for word in AFTER_WORDS)
-    if before_hit and not after_hit:
-        return "before"
-    if after_hit and not before_hit:
-        return "after"
-    return None
-
 
 def find_before_after_pairs(folder: Path) -> pd.DataFrame:
     """Find BEFORE/AFTER pairs in a folder tree using filename conventions."""
 
-    files = sorted(p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS)
-    grouped: dict[str, dict[str, Path]] = {}
-    unmatched: list[dict[str, str]] = []
-
-    for path in files:
-        role = _image_role(path)
-        if role is None:
-            unmatched.append({"path": str(path), "reason": "filename does not clearly say before/after"})
-            continue
-        key = _clean_case_key(path, BEFORE_WORDS if role == "before" else AFTER_WORDS)
-        grouped.setdefault(key, {})[role] = path
-
-    rows: list[dict[str, object]] = []
-    for idx, (key, item) in enumerate(sorted(grouped.items()), start=1):
-        before_path = item.get("before")
-        after_path = item.get("after")
-        status = "OK" if before_path and after_path else "MISSING_PAIR"
-        rows.append(
-            {
-                "case_id": f"case_{idx:03d}_{key}",
-                "pair_key": key,
-                "before_path": str(before_path or ""),
-                "after_path": str(after_path or ""),
-                "status": status,
-                "error": "" if status == "OK" else "Need one BEFORE and one AFTER image with matching names.",
-            }
-        )
-
-    for item in unmatched:
-        rows.append(
-            {
-                "case_id": "",
-                "pair_key": "",
-                "before_path": "",
-                "after_path": "",
-                "status": "UNMATCHED",
-                "error": f"{item['reason']}: {item['path']}",
-            }
-        )
-
-    return pd.DataFrame(rows)
+    df = find_image_pairs(folder)
+    if "error" not in df.columns:
+        df["error"] = df["reason"]
+    return df
 
 
 def _build_batch_contact_sheet(rows: list[dict[str, object]], out_path: Path) -> None:
@@ -137,6 +72,7 @@ def analyze_pair_folder(
 
     pairs = find_before_after_pairs(folder)
     pairs.to_csv(batch_root / "detected_pairs.csv", index=False)
+    write_pairing_report(pairs, config.reports_dir / "pairing_report.csv")
 
     rows: list[dict[str, object]] = []
     for pair in pairs.to_dict("records"):
@@ -161,5 +97,43 @@ def analyze_pair_folder(
     summary = pd.DataFrame(rows)
     summary_path = batch_root / "batch_prediction_summary.csv"
     summary.to_csv(summary_path, index=False)
+    summary.to_csv(batch_root / "batch_summary.csv", index=False)
     _build_batch_contact_sheet(rows, batch_root / "batch_contact_sheet.png")
+    _write_batch_html(summary, batch_root / "batch_report.html")
     return summary
+
+
+def _write_batch_html(summary: pd.DataFrame, out_path: Path) -> None:
+    rows = []
+    for item in summary.to_dict("records"):
+        img = item.get("showcase_path", "")
+        img_path = Path(str(img)) if img else None
+        if img_path and img_path.exists():
+            try:
+                src = img_path.relative_to(out_path.parent)
+            except ValueError:
+                src = img_path
+            img_html = f'<img src="{src}" style="max-width:360px">'
+        else:
+            img_html = ""
+        rows.append(
+            "<tr>"
+            f"<td>{item.get('case_id', '')}</td>"
+            f"<td>{item.get('status', '')}</td>"
+            f"<td>{item.get('valid_pixels', '')}</td>"
+            f"<td>{item.get('predicted_damage_pixels', '')}</td>"
+            f"<td>{item.get('error', item.get('reason', ''))}</td>"
+            f"<td>{img_html}</td>"
+            "</tr>"
+        )
+    html = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Tornado Batch Report</title>
+<style>body{font-family:Arial,sans-serif;margin:28px;color:#222}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:8px;vertical-align:top}th{background:#f4f4f4;text-align:left}</style>
+</head><body><h1>Tornado Batch Report</h1>
+<p>Results are candidate tornado-damage corridors, not confirmed tornado paths unless validated against official ground truth.</p>
+<table><thead><tr><th>Case</th><th>Status</th><th>Valid pixels</th><th>Predicted damage pixels</th><th>Notes</th><th>Preview</th></tr></thead>
+<tbody>
+""" + "\n".join(rows) + """
+</tbody></table></body></html>
+"""
+    out_path.write_text(html)
