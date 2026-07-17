@@ -189,7 +189,21 @@ def run_baseline_predictions(config: ProjectConfig) -> pd.DataFrame:
         raise FileNotFoundError(f"Train the baseline first: missing {model_path}")
 
     model = joblib.load(model_path)
-    pairs = pair_registered_rasters(config)
+    preprocessing_path = config.reports_dir / "preprocessing_summary.csv"
+    if preprocessing_path.exists():
+        preprocessing = pd.read_csv(preprocessing_path)
+        preprocessing = preprocessing[preprocessing["status"].eq("OK")]
+        pairs = pd.DataFrame(
+            {
+                "tornado_id": preprocessing["tornado_id"],
+                "before_path": preprocessing["before_aligned_path"],
+                "after_path": preprocessing["after_aligned_path"],
+                "pair_status": preprocessing["status"],
+                "warnings": preprocessing.get("warnings", ""),
+            }
+        )
+    else:
+        pairs = pair_registered_rasters(config)
     label_geoms = _load_label_geometries(config)
     out_root = config.outputs_dir / "predictions" / "random_forest_baseline"
     out_root.mkdir(parents=True, exist_ok=True)

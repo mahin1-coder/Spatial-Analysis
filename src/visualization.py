@@ -387,7 +387,21 @@ def create_prediction_showcase(config: ProjectConfig) -> pd.DataFrame:
         raise FileNotFoundError("Run --mode predict before creating showcase figures.")
 
     summary = pd.read_csv(summary_path)
-    pairs = pair_registered_rasters(config)
+    preprocessing_path = config.reports_dir / "preprocessing_summary.csv"
+    if preprocessing_path.exists():
+        preprocessing = pd.read_csv(preprocessing_path)
+        preprocessing = preprocessing[preprocessing["status"].eq("OK")]
+        pairs = pd.DataFrame(
+            {
+                "tornado_id": preprocessing["tornado_id"],
+                "before_path": preprocessing["before_aligned_path"],
+                "after_path": preprocessing["after_aligned_path"],
+                "pair_status": preprocessing["status"],
+                "warnings": preprocessing.get("warnings", ""),
+            }
+        )
+    else:
+        pairs = pair_registered_rasters(config)
     pair_by_id = {row["tornado_id"]: row for row in pairs.to_dict("records")}
     label_geoms_all = _load_label_geometries(config)
     showcase_root = pred_root / "showcase_maps"
