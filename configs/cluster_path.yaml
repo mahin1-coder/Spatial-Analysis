@@ -1,0 +1,23 @@
+data:
+  raster_dir: data/raw/rasters
+  shapefile_dir: data/reference/noaa_dat
+  output_dir: outputs_cluster_path
+
+analysis:
+  max_dimension: 1800
+  clusters: 6
+  candidate_percentile: 86
+  min_area_fraction: 0.00008
+  random_seed: 42
+
+model:
+  type: extra_trees
+  probability_percentile: 92
+
+postprocessing:
+  max_paths: 6
+  max_gap_pixels: 45
+  mndwi_threshold: 0.05
+  minimum_water_fraction_for_bridge: 0.30
+  maximum_bridge_angle_degrees: 50
+  minimum_relative_path_score: 0.35

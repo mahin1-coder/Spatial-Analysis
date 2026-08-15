@@ -1,0 +1,15 @@
+langgraph==1.2.9
+geopandas
+joblib
+matplotlib
+numpy
+pandas
+pyproj
+rasterio
+scikit-image
+scikit-learn
+scipy
+shapely
+torch
+timm==1.0.22
+einops==0.8.1

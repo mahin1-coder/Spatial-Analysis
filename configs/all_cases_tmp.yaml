@@ -1,0 +1,46 @@
+data:
+  raster_dir: /private/tmp/tornado_rasters_all
+  shapefile_dir: /private/tmp/tornado_reference/noaa_dat_all
+  output_dir: /private/tmp/tornado_outputs_all_cases
+
+analysis:
+  max_dimension: 1600
+  clusters: 6
+  candidate_percentile: 86
+  min_area_fraction: 0.00008
+  random_seed: 42
+
+model:
+  candidates:
+    - extra_trees
+    - random_forest
+  validation_folds: 5
+  probability_percentiles:
+    - 86
+    - 89
+    - 92
+    - 95
+  positive_samples_per_case: 6000
+  negative_samples_per_case: 12000
+
+postprocessing:
+  max_paths: 3
+  max_gap_pixels: 45
+  mndwi_threshold: 0.05
+  minimum_water_fraction_for_bridge: 0.30
+  maximum_bridge_angle_degrees: 50
+  minimum_relative_path_score: 0.35
+  case_overrides:
+    TOR10:
+      max_paths: 3
+      minimum_relative_path_score: 0.12
+      water_exclusion_buffer_pixels: 6
+    TOR15:
+      water_exclusion_buffer_pixels: 0
+    TOR123:
+      max_paths: 1
+      minimum_relative_path_score: 1.0
+      water_exclusion_buffer_pixels: 10
+      max_gap_pixels: 70
+      axis_filter_half_width_pixels: 42
+      straighten_centerline: true
