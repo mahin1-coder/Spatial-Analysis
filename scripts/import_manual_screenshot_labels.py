@@ -3,24 +3,23 @@ from __future__ import annotations
 
 import json
 import sys
+import csv
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
 if str(PROJECT) not in sys.path:
     sys.path.insert(0, str(PROJECT))
 
-import geopandas as gpd
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import rasterio
 from PIL import Image
 from rasterio.features import rasterize
 from scipy import ndimage as ndi
-from shapely.geometry import LineString
+from shapely.geometry import mapping
 from skimage.morphology import skeletonize
 
 from cluster_path.core import _write_raster
@@ -37,6 +36,7 @@ def screenshot(stem: str) -> Path:
 
 
 CASES = {
+    "TOR5": screenshot("Screenshot 2026-08-17 at 1.43.57"),
     "TOR70": screenshot("Screenshot 2026-08-13 at 2.09.19"),
     "TOR77": screenshot("Screenshot 2026-08-13 at 2.11.28"),
     "TOR78": screenshot("Screenshot 2026-08-13 at 2.12.30"),
@@ -50,6 +50,8 @@ CASES = {
     "TOR123": screenshot("Screenshot 2026-08-13 at 2.19.42"),
     "TOR10": screenshot("Screenshot 2026-08-10 at 3.28.37"),
 }
+
+FILTER_ANNOTATION_CASES = {"TOR5"}
 
 
 def longest_run(values: np.ndarray) -> tuple[int, int]:
@@ -112,6 +114,44 @@ def annotation_mask(panel: np.ndarray, canonical: np.ndarray) -> np.ndarray:
     return skeletonize(accepted)
 
 
+def filter_panel_bbox(rgb: np.ndarray) -> tuple[int, int, int, int]:
+    """Locate the left red/blue map in a two-panel filter screenshot."""
+    maximum = rgb.max(axis=2)
+    minimum = rgb.min(axis=2)
+    colorful = ((maximum - minimum) > 25) & (maximum < 250)
+    labels, count = ndi.label(ndi.binary_closing(colorful, iterations=3))
+    panels = []
+    for label_id in range(1, count + 1):
+        rows, columns = np.where(labels == label_id)
+        if len(rows) < 10_000:
+            continue
+        panels.append((int(columns.min()), int(rows.min()), int(columns.max()) + 1, int(rows.max()) + 1))
+    if not panels:
+        raise ValueError("No red/blue filter panel detected")
+    return min(panels, key=lambda bounds: bounds[0])
+
+
+def filter_annotation_mask(panel: np.ndarray) -> np.ndarray:
+    """Extract the long black user stroke without retaining map texture or text."""
+    maximum = panel.max(axis=2)
+    minimum = panel.min(axis=2)
+    dark_neutral = (maximum < 75) & ((maximum - minimum) < 24)
+    labels, count = ndi.label(ndi.binary_closing(dark_neutral, structure=np.ones((3, 3), dtype=bool)))
+    candidates = []
+    for label_id in range(1, count + 1):
+        component = labels == label_id
+        rows, columns = np.where(component)
+        if len(rows) < 40:
+            continue
+        diagonal = float(np.hypot(np.ptp(rows), np.ptp(columns)))
+        if diagonal < 80:
+            continue
+        candidates.append((diagonal, component))
+    if not candidates:
+        raise ValueError("No long black annotation found in filter panel")
+    return skeletonize(max(candidates, key=lambda item: item[0])[1])
+
+
 def to_raster_mask(screen_mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
     image = Image.fromarray(screen_mask.astype("uint8") * 255)
     resized = np.asarray(image.resize((shape[1], shape[0]), Image.Resampling.NEAREST)) > 0
@@ -130,10 +170,18 @@ def main() -> None:
             rows.append({"case_id": case_id, "status": "rejected", "reason": "missing screenshot or probability raster"})
             continue
         screenshot = np.asarray(Image.open(screenshot_path).convert("RGB"))
-        left, top, right, bottom = panel_bbox(screenshot)
-        panel = screenshot[top:bottom, left:right]
-        canonical = canonical_probability(probability_path, right - left, bottom - top)
-        screen_line = annotation_mask(panel, canonical)
+        if case_id in FILTER_ANNOTATION_CASES:
+            left, top, right, bottom = filter_panel_bbox(screenshot)
+            panel = screenshot[top:bottom, left:right]
+            canonical = panel.copy()
+            screen_line = filter_annotation_mask(panel)
+            label_source = "user_verified_red_blue_filter_annotation"
+        else:
+            left, top, right, bottom = panel_bbox(screenshot)
+            panel = screenshot[top:bottom, left:right]
+            canonical = canonical_probability(probability_path, right - left, bottom - top)
+            screen_line = annotation_mask(panel, canonical)
+            label_source = "user_verified_probability_annotation"
         with rasterio.open(probability_path) as source:
             profile = source.profile.copy()
             transform = source.transform
@@ -164,12 +212,20 @@ def main() -> None:
                 lines.append(line)
         status = "accepted" if lines else "rejected"
         if lines:
-            frame = gpd.GeoDataFrame(
-                {"case_id": [case_id] * len(lines), "path_id": range(1, len(lines) + 1), "label_source": "user_verified_screenshot"},
-                geometry=lines,
-                crs=crs,
-            )
-            frame.to_file(case_dir / "manual_path_centerline.geojson", driver="GeoJSON")
+            collection = {
+                "type": "FeatureCollection",
+                "name": f"{case_id}_manual_training_centerlines",
+                "crs": {"type": "name", "properties": {"name": str(crs)}},
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"case_id": case_id, "path_id": index, "label_source": label_source},
+                        "geometry": mapping(line),
+                    }
+                    for index, line in enumerate(lines, 1)
+                ],
+            }
+            (case_dir / "manual_path_centerline.geojson").write_text(json.dumps(collection), encoding="utf-8")
             corridor = ndi.binary_dilation(line_mask, iterations=5)
             _write_raster(case_dir / "manual_centerline_mask.tif", line_mask, profile, "uint8", 0)
             _write_raster(case_dir / "manual_damage_corridor_mask.tif", corridor, profile, "uint8", 0)
@@ -194,15 +250,20 @@ def main() -> None:
             "probability_raster": str(probability_path),
             "panel_bbox_pixels": [left, top, right, bottom],
             "path_count": len(lines),
+            "label_source": label_source,
             "label_quality": "silver",
             "status": status,
             "warning": "Screenshot-derived supervision; visual registration must be reviewed before final training.",
         }
         (case_dir / "label_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         rows.append(metadata)
-    pd.DataFrame(rows).to_csv(output / "manual_label_inventory.csv", index=False)
-    frame = pd.DataFrame(rows)
-    print(frame.to_string(index=False))
+    columns = sorted({key for row in rows for key in row})
+    with (output / "manual_label_inventory.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    for row in rows:
+        print(row)
 
 
 if __name__ == "__main__":

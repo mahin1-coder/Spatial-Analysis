@@ -250,8 +250,8 @@ def after_image(after: np.ndarray, valid: np.ndarray) -> np.ndarray:
     return rgb
 
 
-def nws_reference_mask(case_id: str, shape: tuple[int, int]) -> np.ndarray:
-    path = NWS_ROOT / case_id.lower() / "nws_dat_damage_paths.geojson"
+def reference_mask(case_id: str, filename: str, shape: tuple[int, int]) -> np.ndarray:
+    path = NWS_ROOT / case_id.lower() / filename
     if not path.exists():
         return np.zeros(shape, dtype=bool)
     collection = json.loads(path.read_text())
@@ -269,6 +269,35 @@ def nws_reference_mask(case_id: str, shape: tuple[int, int]) -> np.ndarray:
         all_touched=True,
         dtype="uint8",
     ).astype(bool)
+
+
+def reference_agreement(predicted: np.ndarray, official: np.ndarray, case_id: str) -> dict[str, float | str]:
+    if not predicted.any() or not official.any():
+        return {
+            "agreement_within_150m_pct": "",
+            "official_coverage_within_150m_pct": "",
+            "median_centerline_distance_m": "",
+        }
+    with rasterio.open(CASE_ROOT / case_id / "model_probability.tif") as source:
+        scale_x = source.width / predicted.shape[1]
+        scale_y = source.height / predicted.shape[0]
+        pixel_x = abs(source.transform.a) * scale_x
+        pixel_y = abs(source.transform.e) * scale_y
+        if source.crs and source.crs.is_geographic:
+            latitude = 0.5 * (source.bounds.bottom + source.bounds.top)
+            pixel_x *= 111_320.0 * np.cos(np.deg2rad(latitude))
+            pixel_y *= 110_574.0
+        pixel_size_m = float(np.mean([pixel_x, pixel_y]))
+    tolerance_pixels = max(1.0, 150.0 / max(pixel_size_m, 1e-6))
+    distance_to_official = ndi.distance_transform_edt(~official)
+    distance_to_predicted = ndi.distance_transform_edt(~predicted)
+    predicted_distances = distance_to_official[predicted]
+    official_distances = distance_to_predicted[official]
+    return {
+        "agreement_within_150m_pct": 100.0 * float(np.mean(predicted_distances <= tolerance_pixels)),
+        "official_coverage_within_150m_pct": 100.0 * float(np.mean(official_distances <= tolerance_pixels)),
+        "median_centerline_distance_m": float(np.median(predicted_distances) * pixel_size_m),
+    }
 
 
 def main() -> None:
@@ -336,7 +365,8 @@ def main() -> None:
         )
         after = after_image(after_bands, valid)
         display = centerline
-        official = nws_reference_mask(case_id, valid.shape)
+        official_path = reference_mask(case_id, "nws_dat_damage_paths.geojson", valid.shape)
+        official_polygon = reference_mask(case_id, "nws_dat_damage_polys.geojson", valid.shape)
         height, width = after.shape[:2]
         fig = plt.figure(figsize=(12, max(4, 12 * height / max(width, 1))), frameon=False)
         axis = fig.add_axes([0, 0, 1, 1])
@@ -344,8 +374,6 @@ def main() -> None:
         if display.any():
             axis.contour(ndi.binary_dilation(display, iterations=2), [0.5], colors=["#10231D"], linewidths=4)
             axis.contour(display, [0.5], colors=["#FFEA00"], linewidths=2.5)
-        if official.any():
-            axis.contour(ndi.binary_dilation(official, iterations=1), [0.5], colors=["#00E5FF"], linewidths=2.5)
         axis.set_axis_off()
         fig.savefig(case_dir / "model_final_path.png", dpi=180, facecolor="white", pad_inches=0)
         plt.close(fig)
@@ -358,12 +386,58 @@ def main() -> None:
         axes[2].imshow(after)
         if display.any():
             axes[2].contour(display, [0.5], colors=["#FFEA00"], linewidths=2.5)
-        if official.any():
-            axes[2].contour(ndi.binary_dilation(official, iterations=1), [0.5], colors=["#00E5FF"], linewidths=2.0)
         axes[2].set_title(f"{path_count} model path(s)", fontweight="bold")
         for axis in axes:
             axis.set_axis_off()
         fig.savefig(case_dir / "model_prediction_panel.png", dpi=170, facecolor="white")
+        plt.close(fig)
+
+        fig = plt.figure(figsize=(12, max(4, 12 * height / max(width, 1))), frameon=False)
+        axis = fig.add_axes([0, 0, 1, 1])
+        axis.imshow(after)
+        if official_polygon.any():
+            axis.contourf(official_polygon, levels=[0.5, 1.5], colors=["#249DE3"], alpha=0.24)
+            axis.contour(official_polygon, [0.5], colors=["#249DE3"], linewidths=1.5)
+        if official_path.any():
+            axis.contour(ndi.binary_dilation(official_path, iterations=1), [0.5], colors=["#00E5FF"], linewidths=3.0)
+        if not official_path.any() and not official_polygon.any():
+            axis.text(
+                0.5, 0.5, "No NOAA/NWS DAT reference available",
+                transform=axis.transAxes, ha="center", va="center", fontsize=20, fontweight="bold",
+                color="white", bbox={"facecolor": "#10231D", "alpha": 0.86, "pad": 12},
+            )
+        axis.set_axis_off()
+        fig.savefig(case_dir / "official_dat_reference.png", dpi=180, facecolor="white", pad_inches=0)
+        plt.close(fig)
+
+        agreement = reference_agreement(display, official_path, case_id)
+        fig, axes = plt.subplots(1, 2, figsize=(16, 7), constrained_layout=True)
+        axes[0].imshow(after)
+        if display.any():
+            axes[0].contour(ndi.binary_dilation(display, iterations=2), [0.5], colors=["#10231D"], linewidths=4)
+            axes[0].contour(display, [0.5], colors=["#FFEA00"], linewidths=2.5)
+        axes[0].set_title(f"Model prediction: {path_count} path(s)", fontweight="bold")
+        axes[1].imshow(after)
+        if official_polygon.any():
+            axes[1].contourf(official_polygon, levels=[0.5, 1.5], colors=["#249DE3"], alpha=0.24)
+        if official_path.any():
+            axes[1].contour(ndi.binary_dilation(official_path, iterations=1), [0.5], colors=["#00E5FF"], linewidths=3.0)
+        if official_path.any():
+            metric_text = (
+                f"Predicted line within 150 m: {agreement['agreement_within_150m_pct']:.1f}%\n"
+                f"DAT line covered within 150 m: {agreement['official_coverage_within_150m_pct']:.1f}%\n"
+                f"Median line distance: {agreement['median_centerline_distance_m']:.0f} m"
+            )
+        else:
+            metric_text = "No official DAT path available for quantitative comparison"
+        axes[1].text(
+            0.02, 0.03, metric_text, transform=axes[1].transAxes, va="bottom", fontsize=12,
+            color="white", bbox={"facecolor": "#10231D", "alpha": 0.86, "pad": 8},
+        )
+        axes[1].set_title("Official NOAA/NWS Damage Assessment Toolkit (DAT)", fontweight="bold")
+        for axis in axes:
+            axis.set_axis_off()
+        fig.savefig(case_dir / "model_vs_dat_comparison.png", dpi=180, facecolor="white")
         plt.close(fig)
 
         row = {
@@ -371,8 +445,12 @@ def main() -> None:
             "path_count": path_count,
             "threshold": threshold,
             "evaluation_type": "training-set result" if label is not None else "unlabeled deployment inference",
-            "nws_dat_reference_available": bool(official.any()),
+            "nws_dat_reference_available": bool(official_path.any() or official_polygon.any()),
+            "dat_path_available": bool(official_path.any()),
+            "dat_polygon_available": bool(official_polygon.any()),
+            "official_reference_source": "NOAA/NWS Damage Assessment Toolkit (DAT)" if (official_path.any() or official_polygon.any()) else "",
         }
+        row.update(agreement)
         if label is not None:
             row.update(score(corridor, label))
         result_rows.append(row)
