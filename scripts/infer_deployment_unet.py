@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import time
 from pathlib import Path
 
@@ -23,7 +24,12 @@ from train_unet_path_model import (
 
 
 def main() -> None:
-    checkpoint_path = OUTPUT / "models" / "final_unet" / "model.pt"
+    checkpoint_override = os.getenv("UNET_CHECKPOINT", "").strip()
+    checkpoint_path = (
+        Path(checkpoint_override).expanduser().resolve()
+        if checkpoint_override
+        else OUTPUT / "models" / "final_unet" / "model.pt"
+    )
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     model = SmallUNet(int(checkpoint["in_channels"]), int(checkpoint.get("base", BASE)))
     model.load_state_dict(checkpoint["state_dict"])
@@ -34,6 +40,9 @@ def main() -> None:
         set(pairs) & {path.name for path in CASE_ROOT.iterdir() if path.is_dir()},
         key=lambda value: int(value[3:]),
     )
+    requested = {value.strip().upper() for value in os.getenv("UNET_CASES", "").split(",") if value.strip()}
+    if requested:
+        case_ids = [case_id for case_id in case_ids if case_id in requested]
     rows = []
     for case_id in case_ids:
         last_error = None
@@ -69,6 +78,12 @@ def main() -> None:
         print(f"predicted {case_id}", flush=True)
 
     report = OUTPUT / "reports" / "deployment_inference.csv"
+    if requested and report.exists():
+        with report.open(newline="") as handle:
+            previous = list(csv.DictReader(handle))
+        by_case = {row["case_id"]: row for row in previous}
+        by_case.update({row["case_id"]: row for row in rows})
+        rows = sorted(by_case.values(), key=lambda row: int(row["case_id"][3:]))
     with report.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()

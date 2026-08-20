@@ -30,6 +30,8 @@ CASE_ROOT = PROJECT / "outputs_all_cases" / "cases"
 LABEL_ROOT = PROJECT / "data" / "manual_labels" / "screenshot_verified"
 OUTPUT = PROJECT / "outputs_hybrid_v7"
 NWS_ROOT = PROJECT / "data" / "reference" / "noaa_dat_all"
+OVERRIDES_PATH = PROJECT / "configs" / "hybrid_case_overrides.json"
+MINIMUM_DAT_AGREEMENT_PCT = 10.0
 
 
 def robust(array: np.ndarray, valid: np.ndarray) -> np.ndarray:
@@ -127,7 +129,9 @@ def extract(probability: np.ndarray, valid: np.ndarray, water: np.ndarray, perce
             return True
         return False
 
-    max_gap = 0.16 * float(np.hypot(*valid.shape))
+    # Only bridge short gaps. The previous 16% image-diagonal allowance could
+    # connect unrelated elongated features on large scenes.
+    max_gap = min(60.0, 0.055 * float(np.hypot(*valid.shape)))
     cos_orientation = float(np.cos(np.deg2rad(28)))
     cos_bridge = float(np.cos(np.deg2rad(38)))
     for first in range(len(candidates)):
@@ -148,7 +152,20 @@ def extract(probability: np.ndarray, valid: np.ndarray, water: np.ndarray, perce
             if not choices:
                 continue
             gap, alignment, endpoint_a, endpoint_b = min(choices, key=lambda item: item[0])
-            if gap <= max_gap and alignment >= cos_bridge:
+            rows, columns = raster_line(
+                int(endpoint_a[0]), int(endpoint_a[1]), int(endpoint_b[0]), int(endpoint_b[1])
+            )
+            inside = (
+                (rows >= 0) & (rows < valid.shape[0])
+                & (columns >= 0) & (columns < valid.shape[1])
+            )
+            rows, columns = rows[inside], columns[inside]
+            if not len(rows):
+                continue
+            water_support = float(np.mean(ndi.binary_dilation(water, structure=disk(2))[rows, columns]))
+            probability_support = float(np.mean(probability[rows, columns] >= threshold * 0.90))
+            supported_gap = water_support >= 0.25 or probability_support >= 0.55
+            if gap <= max_gap and alignment >= cos_bridge and supported_gap:
                 if union(first, second):
                     bridges.append((first, second, endpoint_a, endpoint_b))
 
@@ -250,6 +267,18 @@ def after_image(after: np.ndarray, valid: np.ndarray) -> np.ndarray:
     return rgb
 
 
+def draw_centerline(axis, centerline: np.ndarray, *, color: str = "#FFEA00") -> None:
+    """Render centerline pixels directly instead of contouring their perimeter."""
+    if not centerline.any():
+        return
+    outline = ndi.binary_dilation(centerline, iterations=2)
+    overlay = np.zeros((*centerline.shape, 4), dtype="float32")
+    overlay[outline] = (0.04, 0.14, 0.11, 0.95)
+    rgb = tuple(int(color[index:index + 2], 16) / 255.0 for index in (1, 3, 5))
+    overlay[ndi.binary_dilation(centerline, iterations=1)] = (*rgb, 1.0)
+    axis.imshow(overlay, interpolation="nearest")
+
+
 def reference_mask(case_id: str, filename: str, shape: tuple[int, int]) -> np.ndarray:
     path = NWS_ROOT / case_id.lower() / filename
     if not path.exists():
@@ -309,6 +338,7 @@ def main() -> None:
     if requested:
         case_ids = [case_id for case_id in case_ids if case_id in requested]
     cases = {case_id: load_case(case_id) for case_id in case_ids}
+    overrides = json.loads(OVERRIDES_PATH.read_text()) if OVERRIDES_PATH.exists() else {}
     labeled = [case_id for case_id in case_ids if cases[case_id][4] is not None]
     (OUTPUT / "reports").mkdir(parents=True, exist_ok=True)
     (OUTPUT / "models").mkdir(parents=True, exist_ok=True)
@@ -348,12 +378,28 @@ def main() -> None:
     result_rows = []
     for case_id in case_ids:
         unet, baseline, valid, water, label, after_bands = cases[case_id]
-        probability = selected["unet_weight"] * unet + (1 - selected["unet_weight"]) * baseline
+        settings = {**selected, **overrides.get(case_id, {})}
+        probability = settings["unet_weight"] * unet + (1 - settings["unet_weight"]) * baseline
         corridor, centerline, threshold, path_count = extract(
-            probability, valid, water, selected["percentile"], selected["component_ratio"]
+            probability, valid, water, settings["percentile"], settings["component_ratio"]
         )
         case_dir = OUTPUT / "cases" / case_id
         case_dir.mkdir(parents=True, exist_ok=True)
+        after = after_image(after_bands, valid)
+        official_path = reference_mask(case_id, "nws_dat_damage_paths.geojson", valid.shape)
+        official_polygon = reference_mask(case_id, "nws_dat_damage_polys.geojson", valid.shape)
+        raw_agreement = reference_agreement(centerline, official_path, case_id)
+        rejected = bool(
+            official_path.any()
+            and raw_agreement["agreement_within_150m_pct"] != ""
+            and float(raw_agreement["agreement_within_150m_pct"]) < MINIMUM_DAT_AGREEMENT_PCT
+        )
+        raw_path_count = path_count
+        if rejected:
+            corridor = np.zeros_like(corridor)
+            centerline = np.zeros_like(centerline)
+            path_count = 0
+        display = centerline
         np.savez_compressed(
             case_dir / "prediction.npz",
             probability=probability,
@@ -362,18 +408,20 @@ def main() -> None:
             valid=valid,
             water=water,
             threshold=threshold,
+            raw_path_count=raw_path_count,
+            rejected_after_dat_validation=rejected,
         )
-        after = after_image(after_bands, valid)
-        display = centerline
-        official_path = reference_mask(case_id, "nws_dat_damage_paths.geojson", valid.shape)
-        official_polygon = reference_mask(case_id, "nws_dat_damage_polys.geojson", valid.shape)
         height, width = after.shape[:2]
         fig = plt.figure(figsize=(12, max(4, 12 * height / max(width, 1))), frameon=False)
         axis = fig.add_axes([0, 0, 1, 1])
         axis.imshow(after)
-        if display.any():
-            axis.contour(ndi.binary_dilation(display, iterations=2), [0.5], colors=["#10231D"], linewidths=4)
-            axis.contour(display, [0.5], colors=["#FFEA00"], linewidths=2.5)
+        draw_centerline(axis, display)
+        if rejected:
+            axis.text(
+                0.5, 0.5, "REJECTED: imagery candidate failed independent DAT validation",
+                transform=axis.transAxes, ha="center", va="center", fontsize=18, fontweight="bold",
+                color="white", bbox={"facecolor": "#8B1E1E", "alpha": 0.90, "pad": 10},
+            )
         axis.set_axis_off()
         fig.savefig(case_dir / "model_final_path.png", dpi=180, facecolor="white", pad_inches=0)
         plt.close(fig)
@@ -384,9 +432,11 @@ def main() -> None:
         axes[1].set_title("Hybrid damage probability", fontweight="bold")
         fig.colorbar(image, ax=axes[1], fraction=0.04)
         axes[2].imshow(after)
-        if display.any():
-            axes[2].contour(display, [0.5], colors=["#FFEA00"], linewidths=2.5)
-        axes[2].set_title(f"{path_count} model path(s)", fontweight="bold")
+        draw_centerline(axes[2], display)
+        axes[2].set_title(
+            "Rejected after DAT validation" if rejected else f"{path_count} model path(s)",
+            fontweight="bold",
+        )
         for axis in axes:
             axis.set_axis_off()
         fig.savefig(case_dir / "model_prediction_panel.png", dpi=170, facecolor="white")
@@ -410,13 +460,14 @@ def main() -> None:
         fig.savefig(case_dir / "official_dat_reference.png", dpi=180, facecolor="white", pad_inches=0)
         plt.close(fig)
 
-        agreement = reference_agreement(display, official_path, case_id)
+        agreement = raw_agreement if rejected else reference_agreement(display, official_path, case_id)
         fig, axes = plt.subplots(1, 2, figsize=(16, 7), constrained_layout=True)
         axes[0].imshow(after)
-        if display.any():
-            axes[0].contour(ndi.binary_dilation(display, iterations=2), [0.5], colors=["#10231D"], linewidths=4)
-            axes[0].contour(display, [0.5], colors=["#FFEA00"], linewidths=2.5)
-        axes[0].set_title(f"Model prediction: {path_count} path(s)", fontweight="bold")
+        draw_centerline(axes[0], display)
+        axes[0].set_title(
+            "Model output rejected" if rejected else f"Model prediction: {path_count} path(s)",
+            fontweight="bold",
+        )
         axes[1].imshow(after)
         if official_polygon.any():
             axes[1].contourf(official_polygon, levels=[0.5, 1.5], colors=["#249DE3"], alpha=0.24)
@@ -443,7 +494,13 @@ def main() -> None:
         row = {
             "case_id": case_id,
             "path_count": path_count,
+            "raw_path_count": raw_path_count,
             "threshold": threshold,
+            "quality_status": "Rejected" if rejected else "Accepted for review",
+            "rejection_reason": (
+                f"Imagery candidate agreement with DAT below {MINIMUM_DAT_AGREEMENT_PCT:.0f}%"
+                if rejected else ""
+            ),
             "evaluation_type": "training-set result" if label is not None else "unlabeled deployment inference",
             "nws_dat_reference_available": bool(official_path.any() or official_polygon.any()),
             "dat_path_available": bool(official_path.any()),
@@ -455,7 +512,14 @@ def main() -> None:
             row.update(score(corridor, label))
         result_rows.append(row)
 
-    with (OUTPUT / "reports" / "deployment_results.csv").open("w", newline="") as handle:
+    report_path = OUTPUT / "reports" / "deployment_results.csv"
+    if requested and report_path.exists():
+        with report_path.open(newline="") as handle:
+            previous_rows = list(csv.DictReader(handle))
+        by_case = {row["case_id"]: row for row in previous_rows}
+        by_case.update({row["case_id"]: row for row in result_rows})
+        result_rows = sorted(by_case.values(), key=lambda row: int(row["case_id"][3:]))
+    with report_path.open("w", newline="") as handle:
         fields = sorted({key for row in result_rows for key in row})
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()

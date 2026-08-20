@@ -205,8 +205,14 @@ async function main() {
     await addFullImageSlide(p, caseId, "K-means exposes recurring change signatures", "UNSUPERVISED ANALYSIS", "clustering_analysis", "Clustering is explanatory evidence; it is not used as ground truth.", page++);
     await addFullImageSlide(p, caseId, "red-blue and magnitude filters reveal candidate corridors", "FILTER EVIDENCE", "red_blue_filter", "Red indicates increased post-event response; blue indicates decreased response.", page++);
     await addStatisticsSlide(p, caseId, page++);
-    await addFullImageSlide(p, caseId, "the ensemble converts change evidence into path probability", "MODEL INFERENCE", "model_prediction_panel", `${row.path_count} model-generated path(s); labels and DAT geometry were unavailable to the inference function.`, page++);
-    await addFullImageSlide(p, caseId, "model-generated path on the full AFTER image", "MODEL RESULT", "model_final_path", `Yellow shows ${row.path_count} model-generated path(s). No manual or official line is drawn on this slide.`, page++);
+    const modelCaption = row.quality_status === "Rejected"
+      ? `Rejected after validation: ${row.rejection_reason}. The raw imagery candidate is retained only in diagnostics.`
+      : `${row.path_count} model-generated path(s); labels and DAT geometry were unavailable to the inference function.`;
+    const pathCaption = row.quality_status === "Rejected"
+      ? "No tornado path is reported because the imagery candidate failed the independent DAT quality-control check."
+      : `Yellow shows ${row.path_count} model-generated path(s). No manual or official line is drawn on this slide.`;
+    await addFullImageSlide(p, caseId, "the ensemble converts change evidence into path probability", "MODEL INFERENCE", "model_prediction_panel", modelCaption, page++);
+    await addFullImageSlide(p, caseId, row.quality_status === "Rejected" ? "no reliable imagery-only path is reported" : "model-generated path on the full AFTER image", "MODEL RESULT", "model_final_path", pathCaption, page++);
     const referenceCaption = row.nws_dat_reference_available === "True"
       ? `Official source: NOAA/NWS Damage Assessment Toolkit (DAT). Path available: ${row.dat_path_available}; polygon available: ${row.dat_polygon_available}.`
       : "No official NOAA/NWS DAT path or polygon was available for this case.";
