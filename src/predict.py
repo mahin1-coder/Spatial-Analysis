@@ -20,6 +20,7 @@ from sklearn.metrics import f1_score, precision_score, recall_score
 
 from .baseline_model import _load_label_geometries, _window_geometries
 from .config import ProjectConfig
+from .postprocessing import write_vector_products
 from .preprocessing import pair_registered_rasters
 
 LOGGER = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ def _window_features(before_src, after_src, window) -> tuple[np.ndarray, np.ndar
 
 
 def _window_label(before_src, window, label_geoms: list[dict[str, object]]) -> np.ndarray:
-    geoms = _window_geometries(label_geoms, before_src.window_bounds(window))
+    geoms = _window_geometries(label_geoms, before_src.window_bounds(window), before_src.crs)
     shape = (int(window.height), int(window.width))
     if not geoms:
         return np.zeros(shape, dtype="uint8")
@@ -99,19 +100,31 @@ def predict_on_pair(
     with rasterio.open(before_path) as before_src, rasterio.open(after_path) as after_src:
         profile = before_src.profile.copy()
         profile.update(count=1, dtype="uint8", nodata=NODATA, compress="deflate", BIGTIFF="IF_SAFER")
+        probability_profile = before_src.profile.copy()
+        probability_profile.update(count=1, dtype="float32", nodata=np.nan, compress="deflate", BIGTIFF="IF_SAFER")
         pred_full = np.full((before_src.height, before_src.width), NODATA, dtype="uint8")
+        probability_full = np.full((before_src.height, before_src.width), np.nan, dtype="float32")
 
         for _, window in after_src.block_windows(1):
             X, valid_flat, error = _window_features(before_src, after_src, window)
             if X.size == 0:
                 window_rows.append({"window": str(window), "status": "SKIPPED", "valid_pixels": 0, "error": error})
                 continue
-            pred = model.predict(X).astype("uint8")
+            if hasattr(model, "predict_proba"):
+                proba = model.predict_proba(X)[:, 1].astype("float32")
+                pred = (proba >= 0.5).astype("uint8")
+            else:
+                pred = model.predict(X).astype("uint8")
+                proba = pred.astype("float32")
             window_pred_flat = np.full(valid_flat.shape, NODATA, dtype="uint8")
+            window_proba_flat = np.full(valid_flat.shape, np.nan, dtype="float32")
             window_pred_flat[valid_flat] = pred
+            window_proba_flat[valid_flat] = proba
             window_pred = window_pred_flat.reshape((int(window.height), int(window.width)))
+            window_proba = window_proba_flat.reshape((int(window.height), int(window.width)))
             row_slice, col_slice = window.toslices()
             pred_full[row_slice, col_slice] = window_pred
+            probability_full[row_slice, col_slice] = window_proba
 
             label = _window_label(before_src, window, label_geoms)
             valid_label = label.reshape(-1)[valid_flat]
@@ -133,8 +146,12 @@ def predict_on_pair(
         pred_tif = out_dir / "prediction_mask.tif"
         with rasterio.open(pred_tif, "w", **profile) as dst:
             dst.write(pred_full, 1)
+        proba_tif = out_dir / "predicted_probability.tif"
+        with rasterio.open(proba_tif, "w", **probability_profile) as dst:
+            dst.write(probability_full, 1)
         pred_png = out_dir / "prediction_mask.png"
         _save_prediction_png(pred_full, pred_png)
+        vector_products = write_vector_products(pred_tif, out_dir)
 
     if y_true_parts:
         y_true = np.concatenate(y_true_parts)
@@ -157,7 +174,9 @@ def predict_on_pair(
         "recall": recall,
         "dice_f1": dice_f1,
         "prediction_tif": str(pred_tif),
+        "predicted_probability": str(proba_tif),
         "prediction_png": str(pred_png),
+        **vector_products,
         "error": "",
     }
 
@@ -170,7 +189,21 @@ def run_baseline_predictions(config: ProjectConfig) -> pd.DataFrame:
         raise FileNotFoundError(f"Train the baseline first: missing {model_path}")
 
     model = joblib.load(model_path)
-    pairs = pair_registered_rasters(config)
+    preprocessing_path = config.reports_dir / "preprocessing_summary.csv"
+    if preprocessing_path.exists():
+        preprocessing = pd.read_csv(preprocessing_path)
+        preprocessing = preprocessing[preprocessing["status"].eq("OK")]
+        pairs = pd.DataFrame(
+            {
+                "tornado_id": preprocessing["tornado_id"],
+                "before_path": preprocessing["before_aligned_path"],
+                "after_path": preprocessing["after_aligned_path"],
+                "pair_status": preprocessing["status"],
+                "warnings": preprocessing.get("warnings", ""),
+            }
+        )
+    else:
+        pairs = pair_registered_rasters(config)
     label_geoms = _load_label_geometries(config)
     out_root = config.outputs_dir / "predictions" / "random_forest_baseline"
     out_root.mkdir(parents=True, exist_ok=True)

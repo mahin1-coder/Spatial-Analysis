@@ -41,7 +41,6 @@ def _load_label_geometries(config: ProjectConfig) -> list[dict[str, object]]:
             if gdf.crs is None:
                 LOGGER.warning("Skipping shapefile without CRS: %s", shp)
                 continue
-            gdf = gdf.to_crs("EPSG:4326")
             for _, row in gdf.iterrows():
                 geom = row.geometry
                 if geom is None or geom.is_empty:
@@ -54,19 +53,39 @@ def _load_label_geometries(config: ProjectConfig) -> list[dict[str, object]]:
                         width_m = 250
                     if width_m <= 0 or not np.isfinite(width_m):
                         width_m = 250
-                    # Approximate conversion for WGS84 labels. Later phases should use
-                    # local projected CRS buffering, but this is enough for baseline triage.
-                    geom = geom.buffer(max(width_m / 2.0, 30.0) / 111_320.0)
-                geometries.append({"geometry": geom, "source": str(shp), "role": role})
+                    buffer_distance = max(width_m / 2.0, 30.0)
+                    if getattr(gdf.crs, "is_geographic", False):
+                        buffer_distance = buffer_distance / 111_320.0
+                    geom = geom.buffer(buffer_distance)
+                geometries.append({"geometry": geom, "source": str(shp), "role": role, "crs": gdf.crs})
         except Exception as exc:
             LOGGER.warning("Could not read label shapefile %s: %s", shp, exc)
     return geometries
 
 
-def _window_geometries(label_geoms: list[dict[str, object]], bounds) -> list[object]:
+def _geometry_in_crs(item: dict[str, object], target_crs) -> object | None:
+    geom = item.get("geometry")
+    if geom is None:
+        return None
+    source_crs = item.get("crs")
+    if source_crs is not None and target_crs is not None and source_crs != target_crs:
+        try:
+            return gpd.GeoSeries([geom], crs=source_crs).to_crs(target_crs).iloc[0]
+        except Exception as exc:
+            LOGGER.warning("Could not transform label geometry from %s to %s: %s", source_crs, target_crs, exc)
+            return None
+    return geom
+
+
+def _window_geometries(label_geoms: list[dict[str, object]], bounds, target_crs=None) -> list[object]:
     left, bottom, right, top = bounds
     footprint = box(left, bottom, right, top)
-    return [item["geometry"] for item in label_geoms if item["geometry"].intersects(footprint)]
+    geoms = []
+    for item in label_geoms:
+        geom = _geometry_in_crs(item, target_crs)
+        if geom is not None and not geom.is_empty and geom.intersects(footprint):
+            geoms.append(geom)
+    return geoms
 
 
 def _sample_window(
@@ -103,7 +122,7 @@ def _sample_window(
         return np.empty((0, 0), dtype="float32"), np.empty((0,), dtype="uint8"), stats
 
     bounds = before_src.window_bounds(window)
-    geoms = _window_geometries(label_geoms, bounds)
+    geoms = _window_geometries(label_geoms, bounds, before_src.crs)
     if not geoms:
         mask = np.zeros((int(window.height), int(window.width)), dtype="uint8")
     else:

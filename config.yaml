@@ -1,0 +1,32 @@
+data:
+  raster_dir: data/raw/rasters
+  shapefile_dir: data/raw/shapefiles
+  output_dir: outputs_rf_path
+  hybrid_output_dir: outputs_hybrid_path
+
+model:
+  random_seed: 42
+  trees: 80
+  max_depth: 16
+  max_samples_per_case: 8000
+  positive_buffer_pixels: 8
+  negative_exclusion_pixels: 24
+  probability_threshold: 0.45
+  min_component_pixels: 120
+
+dnn:
+  enabled: true
+  patch_size: 128
+  patches_per_case: 10
+  epochs: 3
+  batch_size: 4
+  learning_rate: 0.001
+  max_inference_tile: 512
+  inference_overlap: 64
+  blend_weight: 0.25
+
+quality:
+  reject_valid_fraction_below: 0.02
+  low_confidence_valid_fraction_below: 0.10
+  max_prediction_fraction: 0.30
+  max_path_tortuosity: 4.0

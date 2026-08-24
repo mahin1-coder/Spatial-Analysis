@@ -1,0 +1,16 @@
+{
+  "case_id": "TOR5",
+  "screenshot": "/Users/m.mahin/Desktop/Screenshot 2026-08-17 at 1.43.57\u202fPM.png",
+  "reference_raster": "/Users/m.mahin/Documents/New project 2/Spatial-Analysis/outputs_all_cases/cases/TOR5/model_probability.tif",
+  "panel_bbox_pixels": [
+    36,
+    202,
+    506,
+    497
+  ],
+  "path_count": 1,
+  "label_source": "user_verified_red_blue_filter_annotation",
+  "label_quality": "silver",
+  "training_only": true,
+  "visible_at_inference": false
+}

@@ -1,0 +1,36 @@
+data:
+  raster_dir: data_research_final
+  shapefile_dir: data/reference/noaa_dat_all
+  output_dir: outputs_research_v3_smoke
+
+analysis:
+  max_dimension: 1600
+  clusters: 6
+  candidate_percentile: 86
+  min_area_fraction: 0.00008
+  random_seed: 42
+
+model:
+  candidates: [extra_trees, random_forest]
+  validation_folds: 3
+  probability_percentiles: [86, 89, 92, 95]
+  positive_samples_per_case: 1000
+  negative_samples_per_case: 2000
+
+postprocessing:
+  max_paths: 6
+  max_gap_pixels: 45
+  mndwi_threshold: 0.05
+  minimum_water_fraction_for_bridge: 0.30
+  maximum_bridge_angle_degrees: 50
+  minimum_relative_path_score: 0.25
+  water_exclusion_buffer_pixels: 6
+  maximum_feature_follow_fraction: 0.65
+
+context_layers:
+  hydrography_paths: []
+  road_paths: []
+  railway_paths: []
+  hydrography_buffer_pixels: 2.0
+  road_buffer_pixels: 1.5
+  railway_buffer_pixels: 1.5

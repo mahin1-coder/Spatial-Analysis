@@ -1,0 +1,24 @@
+model:
+  upstream: ibm-nasa-geospatial/Prithvi-EO-2.0-tiny-TL
+  vendor_dir: third_party/prithvi_eo2_tiny
+  patch_size: 224
+  frames: 2
+  bands: [SR_B1, SR_B2, SR_B3, SR_B4, SR_B5, SR_B7]
+  epochs: 18
+  patches_per_class: 36
+  batch_size: 8
+  inference_stride: 160
+  random_seed: 42
+
+data:
+  source: data/raw/rasters
+  shapefiles: data/raw/shapefiles
+  aligned_root: outputs_hybrid_path/cases
+  output: outputs_prithvi
+
+scientific_rules:
+  freeze_encoder: true
+  grouped_validation: leave-one-tornado-out
+  allow_nws_in_prediction_selection: false
+  publish_unlabelled_as_verified: false
+  reject_nws_mismatch: true

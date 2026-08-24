@@ -1,0 +1,7 @@
+{
+  "checkpoint": "/Users/m.mahin/Documents/New project 2/Spatial-Analysis/outputs_unet_v6/models/final_unet/model.pt",
+  "prediction_source": "BEFORE/AFTER imagery and derived raster features",
+  "labels_available_to_inference": false,
+  "training_set_cases_are_not_independent_test_results": true,
+  "case_count": 29
+}

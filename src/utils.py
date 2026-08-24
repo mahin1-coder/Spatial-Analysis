@@ -34,10 +34,10 @@ def detect_tornado_id(path: Path) -> str | None:
 def detect_before_after(path: Path) -> str | None:
     """Detect BEFORE/AFTER status from a filename."""
 
-    name = path.name.upper()
-    if "BEFORE" in name or "_PRE" in name or "-PRE" in name:
+    name = path.stem.upper()
+    if re.search(r"(^|[^A-Z0-9])(BEFORE|PRE|PRE[_ -]?EVENT|PRE[_ -]?STORM)([^A-Z0-9]|$)", name):
         return "BEFORE"
-    if "AFTER" in name or "_POST" in name or "-POST" in name:
+    if re.search(r"(^|[^A-Z0-9])(AFTER|POST|POST[_ -]?EVENT|POST[_ -]?STORM)([^A-Z0-9]|$)", name):
         return "AFTER"
     return None
 

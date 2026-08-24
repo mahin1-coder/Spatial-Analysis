@@ -1,0 +1,20 @@
+{
+  "TOR111": {
+    "unet_weight": 0.8,
+    "percentile": 96.0,
+    "component_ratio": 0.25,
+    "reason": "Training-mask calibration retained two independent supported components."
+  },
+  "TOR112": {
+    "unet_weight": 0.8,
+    "percentile": 95.0,
+    "component_ratio": 0.65,
+    "reason": "Higher component-ratio rejects fragmented secondary change features."
+  },
+  "TOR123": {
+    "unet_weight": 0.8,
+    "percentile": 96.0,
+    "component_ratio": 0.25,
+    "reason": "Lower threshold extends the supported corridor while retaining one dominant path."
+  }
+}

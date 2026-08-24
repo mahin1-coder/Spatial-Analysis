@@ -3,3 +3,10 @@ __pycache__/
 *.pyc
 .DS_Store
 .ipynb_checkpoints/
+outputs/logs/
+outputs/preprocessed/*/before_aligned.tif
+outputs/preprocessed/*/after_aligned.tif
+outputs/preprocessed/*/preprocessing_metadata.json
+data/incoming/
+data/raw/source_mirror/
+*.tmp

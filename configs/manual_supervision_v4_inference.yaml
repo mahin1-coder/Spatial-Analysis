@@ -1,0 +1,24 @@
+data:
+  raster_dir: data_research_final
+  shapefile_dir: data/reference/noaa_dat_all
+  manual_label_dir: data/manual_labels/screenshot_verified
+  output_dir: outputs_manual_v4
+analysis:
+  max_dimension: 900
+  clusters: 6
+  random_seed: 42
+model:
+  candidates: [random_forest]
+postprocessing:
+  max_paths: 6
+  max_gap_pixels: 38
+  mndwi_threshold: 0.05
+  minimum_water_fraction_for_bridge: 0.25
+  maximum_bridge_angle_degrees: 45
+  minimum_relative_path_score: 0.18
+  water_exclusion_buffer_pixels: 4
+  maximum_feature_follow_fraction: 0.55
+context_layers:
+  hydrography_paths: []
+  road_paths: []
+  railway_paths: []

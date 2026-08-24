@@ -1,0 +1,63 @@
+pairing:
+  accepted_extensions: [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+  require_exactly_one_before: true
+  require_exactly_one_after: true
+
+validation:
+  minimum_geographic_overlap_fraction: 0.01
+  fail_on_unreadable_raster: true
+  fail_on_band_count_mismatch: true
+
+alignment:
+  reference_grid: "before"
+  continuous_resampling: "bilinear"
+  categorical_resampling: "nearest"
+  save_debug_aligned_rasters: true
+
+preprocessing:
+  percentile_clip_lower: 2
+  percentile_clip_upper: 98
+  preserve_nodata_mask: true
+  infer_band_identity: false
+  histogram_matching: false
+  radiometric_normalization: false
+
+features:
+  include_raw_before: true
+  include_raw_after: true
+  include_signed_difference: true
+  include_absolute_difference: true
+  include_relative_difference: true
+  include_spectral_change_magnitude: true
+  include_local_texture: false
+  calculate_vegetation_indices_only_with_confirmed_band_metadata: true
+
+random_forest:
+  random_seed: 42
+  n_estimators: 250
+  max_depth: 18
+  min_samples_leaf: 2
+  class_weight: "balanced_subsample"
+  probability_threshold: 0.5
+
+postprocessing:
+  minimum_component_size_pixels: 64
+  cleanup_opening_pixels: 3
+  cleanup_closing_pixels: 5
+  output_centerline: true
+  output_damage_polygon: true
+
+unet:
+  enabled_by_default: false
+  device_order: ["cuda", "mps", "cpu"]
+  tile_size: 256
+  batch_size: 4
+  learning_rate: 0.0001
+  early_stopping_patience: 8
+
+outputs:
+  write_probability_map: true
+  write_binary_mask: true
+  write_vector_products: true
+  write_batch_html_report: true
+  logs_dir: "outputs/logs"

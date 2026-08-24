@@ -1,0 +1,46 @@
+{
+  "model": "SmallUNet",
+  "training_cases": [
+    "TOR5",
+    "TOR10",
+    "TOR70",
+    "TOR77",
+    "TOR78",
+    "TOR91",
+    "TOR95",
+    "TOR101",
+    "TOR111",
+    "TOR112",
+    "TOR114",
+    "TOR115",
+    "TOR123"
+  ],
+  "unlabeled_inference_cases": [
+    "TOR7",
+    "TOR11",
+    "TOR12",
+    "TOR13",
+    "TOR15",
+    "TOR16",
+    "TOR18",
+    "TOR24",
+    "TOR61",
+    "TOR62",
+    "TOR66",
+    "TOR68",
+    "TOR69",
+    "TOR90",
+    "TOR102",
+    "TOR105"
+  ],
+  "selected_threshold": 0.7000000000000002,
+  "grouped_validation": {
+    "threshold": 0.7000000000000002,
+    "dice": 0.22480680400048567,
+    "iou": 0.13410098185392622,
+    "precision": 0.19279180347003708,
+    "recall": 0.4010012485834291
+  },
+  "manual_labels_visible_in_output": false,
+  "labeled_case_predictions": "out-of-fold"
+}

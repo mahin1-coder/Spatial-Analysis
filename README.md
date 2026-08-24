@@ -1,183 +1,70 @@
-# Tornado Damage Path Detection
+# Agentic Tornado Damage-Path Analysis
 
-This project detects likely tornado damage paths from paired **before** and **after** satellite imagery.
+## Prithvi research workflow
 
-The goal is practical: when a new tornado dataset arrives, the workflow should not require someone to manually trace the path by hand. Drop in the imagery, run the pipeline, and get a slide-ready map showing the predicted damage corridor.
+The current experiment uses the official NASA/IBM Prithvi-EO-2.0-tiny-TL encoder with two Landsat dates. It compares a small segmentation decoder, a balanced Extra Trees classifier over frozen Prithvi embeddings, and a weighted ensemble.
 
-## What It Does
-
-- Finds before/after image pairs in a folder
-- Aligns and compares the raster data where the imagery is readable
-- Runs a trained baseline model on the paired imagery
-- Produces a damage mask for each tornado case
-- Renders clear map outputs with a red predicted path overlay
-- Supports official NWS shapefile overlays when they are available
-- Builds a contact sheet for batches, so 50 pairs produce 50 reviewable maps
-
-Typical use:
-
-```text
-2 images   -> 1 tornado path map
-100 images -> about 50 tornado path maps
+```bash
+env PYTHONPATH=. .venv/bin/python run_prithvi_workflow.py --clean
+env PYTHONPATH=. .venv/bin/python run_prithvi_embedding_rf.py --clean
+env PYTHONPATH=. .venv/bin/python build_prithvi_ensemble.py
 ```
 
-## Current Model
+The selected ensemble reached macro leave-one-tornado-out Dice `0.199` on the four cases with safe event-specific NWS paths. None of the four held-out centerlines passed the strict NWS path-agreement gate, so this remains a research triage system rather than a validated unattended detector. Outputs without NWS data are labelled **unverified imagery-only candidates**.
 
-The current working model is a Random Forest baseline trained on readable before/after raster windows from the existing tornado dataset.
+Analyze a future folder without retraining:
 
-Model file:
-
-```text
-outputs/models/random_forest_baseline/random_forest_damage_baseline.joblib
+```bash
+env PYTHONPATH=. .venv/bin/python run_prithvi_inference.py \
+  --source "/path/to/new_folder" \
+  --output "outputs_prithvi_future/new_batch" \
+  --assume-landsat-order
 ```
 
-This is a working baseline, not the final research-grade model. It is good enough to prove the automated workflow and generate visual outputs. The next major upgrade should be a segmentation model such as U-Net, trained on clean complete GeoTIFFs and stronger labels.
+Use `--assume-landsat-order` only for the same six-band professor data product, whose order is known to be `SR_B1, SR_B2, SR_B3, SR_B4, SR_B5, SR_B7`. Without that explicit acknowledgement, unnamed bands are rejected. Mac users can double-click `RUN_PRITHVI_NEW_DATASET.command` and drag the new folder into Terminal.
 
-## Quick Start
+This repository processes paired BEFORE and AFTER multispectral GeoTIFFs and produces a reviewable tornado-damage corridor, curved centerline, quality-control report, and PowerPoint deck.
 
-On macOS, the easiest way is to double-click:
+The workflow uses a deterministic LangGraph state machine. Each agent has one job: inventory, geospatial alignment, EDA, K-Means candidate generation, model inference, path extraction, NWS validation, reporting, and presentation generation. The predicted red path comes from the imagery workflow. The cyan NWS path is drawn afterward for validation and is never copied into the prediction.
 
-```text
-RUN_NEW_DATASET.command
-```
-
-Then drag the professor's dataset folder into the Terminal window and press Enter.
-
-The script will:
-
-1. Set up Python packages if needed
-2. Detect before/after pairs
-3. Run the trained model
-4. Create Gloria-style map figures
-5. Open the output folder
-
-Open this first:
-
-```text
-batch_contact_sheet.png
-```
-
-Each case also gets its own:
-
-```text
-showcase_prediction_map.png
-```
-
-## Folder Naming
-
-For automatic pairing, filenames should clearly say which image is before and which is after.
-
-Good examples:
-
-```text
-case01_before.tif
-case01_after.tif
-
-TOR_2024_01_before.tif
-TOR_2024_01_after.tif
-
-new_area_pre_event.tif
-new_area_post_event.tif
-```
-
-If the folder contains 100 files, the pipeline looks for matching before/after names and processes each pair.
-
-## Command Line Usage
-
-From the repo folder:
+## Run the professor dataset
 
 ```bash
 cd "/Users/m.mahin/Documents/New project 2/Spatial-Analysis"
+.venv/bin/python run_agentic_workflow.py --clean
 ```
 
-Analyze a folder of new images:
+Open:
+
+- `outputs_agentic/agentic_report.html`
+- `outputs_agentic/presentation/agentic_tornado_path_analysis.pptx`
+- `outputs_agentic/reports/agentic_case_summary.csv`
+
+## Run a new folder
 
 ```bash
-.venv/bin/python run_pipeline.py --mode analyze-folder \
-  --source "/Users/m.mahin/Desktop/new_tornado_dataset" \
-  --batch-name "professor_batch"
+.venv/bin/python run_agentic_workflow.py \
+  --source "/path/to/new/folder" \
+  --output "outputs_agentic_new_batch" \
+  --reuse-output ""
 ```
 
-Analyze one pair manually:
+The folder must contain unambiguous BEFORE/AFTER pairs such as `TOR25_before.tif` and `TOR25_after.tif`. NWS shapefiles are optional at inference time.
 
-```bash
-.venv/bin/python run_pipeline.py --mode analyze-pair \
-  --before "/path/to/case01_before.tif" \
-  --after "/path/to/case01_after.tif" \
-  --name "case01"
-```
+On macOS, double-click `RUN_AGENTIC_WORKFLOW.command`, drag the new data folder into Terminal, and press Enter.
 
-Analyze one pair with an official NWS shapefile:
+## Methods
 
-```bash
-.venv/bin/python run_pipeline.py --mode analyze-pair \
-  --before "/path/to/case01_before.tif" \
-  --after "/path/to/case01_after.tif" \
-  --name "case01" \
-  --nws-shapefile "/path/to/nws_dat_damage_paths.shp"
-```
+- `rasterio`, `geopandas`, `shapely`, and `pyproj` for CRS-safe geospatial processing
+- `numpy` and `scipy` for multispectral changes and local processing
+- `scikit-learn` for K-Means and Random Forest probability inference
+- `scikit-image` for morphology and skeleton concepts
+- a small PyTorch U-Net blended with Random Forest when the saved checkpoint is available
+- graph-based skeleton centerlines with a portable Tornado_Modis-inspired curve fallback
+- `matplotlib` and artifact-tool for figures and PowerPoint output
 
-## Output Colors
+See [docs/AGENTIC_WORKFLOW.md](docs/AGENTIC_WORKFLOW.md) for the full process and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution.
 
-- Red: model predicted tornado damage/path
-- Cyan or blue: official NWS path/polygon, if supplied
-- Gray or white: unreadable, missing, or corrupted image area
+## Scientific limits
 
-The pipeline does not fake results for broken imagery. If a tile cannot be read, it is marked instead of silently guessed.
-
-## Main Output Locations
-
-Batch results:
-
-```text
-outputs/predictions/batch/<batch_name>/
-```
-
-Single-pair results:
-
-```text
-outputs/predictions/custom/<case_name>/
-```
-
-Research dataset results:
-
-```text
-outputs/predictions/random_forest_baseline/
-```
-
-## Research Pipeline Modes
-
-These commands are useful when working with the full historical dataset:
-
-```bash
-.venv/bin/python run_pipeline.py --mode inventory --source "/path/to/dataset"
-.venv/bin/python run_pipeline.py --mode full --source "/path/to/dataset"
-.venv/bin/python run_pipeline.py --mode baseline
-.venv/bin/python run_pipeline.py --mode predict
-.venv/bin/python run_pipeline.py --mode showcase
-.venv/bin/python run_pipeline.py --mode path-atlas
-```
-
-## Data Quality Notes
-
-The original sample data contained several truncated or unreadable TIFF tiles. That limits how much any model can learn or predict from those files.
-
-For stronger results, future datasets should include:
-
-- clean GeoTIFF before/after imagery
-- matching resolution and projection
-- minimal cloud cover
-- official NWS path or polygon shapefiles when available
-- enough labeled examples across EF0 to EF4 damage
-
-## Engineering Roadmap
-
-The current repo is set up to make the workflow usable now. The recommended next steps are:
-
-1. Collect clean before/after GeoTIFFs for more tornado cases
-2. Build stronger labels from NWS damage paths and manual QA
-3. Train a U-Net or similar segmentation model
-4. Add confidence maps and path centerline extraction
-5. Package the workflow as a small web app for drag-and-drop use
-
-The important part is already in place: the project can take new paired imagery and automatically produce tornado path maps without hand tracing.
+This is a research workflow, not an operational warning product. It rejects weak cases instead of inventing a path. NWS agreement is reported only when valid reference geometry exists, and results from cases used in training are explicitly marked as training-reference comparisons.
